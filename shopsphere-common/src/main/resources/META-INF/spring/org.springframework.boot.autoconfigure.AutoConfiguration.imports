@@ -1,0 +1,2 @@
+com.shopsphere.common.config.CommonWebAutoConfiguration
+com.shopsphere.common.config.CommonFeignAutoConfiguration

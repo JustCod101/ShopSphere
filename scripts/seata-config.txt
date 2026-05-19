@@ -1,0 +1,26 @@
+# Seata 1.8.0 配置（推 Nacos 配置中心，每行一个 key→独立 dataId，group=SEATA_GROUP）
+# 官方 seata-nacos-config.sh 为「逐 key dataId」模式，故 application.yml 不设 data-id
+# 密码用 ${MYSQL_ROOT_PASSWORD} 占位，由 seata-config-init 容器 sed 注入后再推（§10 不落明文）
+
+service.vgroupMapping.shopsphere-tx-group=default
+service.default.grouplist=seata-server:8091
+service.disableGlobalTransaction=false
+
+store.mode=db
+store.session.mode=db
+store.lock.mode=db
+
+store.db.datasource=druid
+store.db.dbType=mysql
+store.db.driverClassName=com.mysql.cj.jdbc.Driver
+store.db.url=jdbc:mysql://mysql:3306/shopsphere_seata?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false
+store.db.user=root
+store.db.password=${MYSQL_ROOT_PASSWORD}
+store.db.minConn=5
+store.db.maxConn=30
+store.db.globalTable=global_table
+store.db.branchTable=branch_table
+store.db.distributedLockTable=distributed_lock
+store.db.lockTable=lock_table
+store.db.queryLimit=100
+store.db.maxWait=5000

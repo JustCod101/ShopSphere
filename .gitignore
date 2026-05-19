@@ -1,0 +1,14 @@
+# 持久化数据卷（运行期生成，勿入库）
+/data/
+
+# 真实密钥（仅 .env.example 入库）
+.env
+
+# 构建产物
+target/
+*.class
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store

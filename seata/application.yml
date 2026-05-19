@@ -1,0 +1,50 @@
+# Seata 1.8.0 Server 配置 —— 基于镜像默认 application.yml，仅改 config/registry/store
+# 保留 logging/console/security 默认块（缺失会导致 ${logging.file.path} 占位无法解析而启动失败）
+# config 逐 key 读 Nacos（不设 data-id，与官方 seata-nacos-config.sh 推送方式一致）
+
+server:
+  port: 7091
+
+spring:
+  application:
+    name: seata-server
+
+logging:
+  config: classpath:logback-spring.xml
+  file:
+    path: ${log.home:${user.home}/logs/seata}
+  extend:
+    logstash-appender:
+      destination: 127.0.0.1:4560
+    kafka-appender:
+      bootstrap-servers: 127.0.0.1:9092
+      topic: logback_to_logstash
+
+console:
+  user:
+    username: seata
+    password: seata
+
+seata:
+  config:
+    type: nacos
+    nacos:
+      server-addr: nacos:8848
+      group: SEATA_GROUP
+      namespace: ""
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: nacos:8848
+      group: SEATA_GROUP
+      namespace: ""
+      cluster: default
+  store:
+    mode: db
+  # store.db.* 由 Nacos 配置中心下发（见 scripts/seata-config.txt）
+  security:
+    secretKey: SeataSecretKey0c382ef121d778043159209298fd40bf3850a017
+    tokenValidityInMilliseconds: 1800000
+    ignore:
+      urls: /,/**/*.css,/**/*.js,/**/*.html,/**/*.map,/**/*.svg,/**/*.png,/**/*.jpeg,/**/*.ico,/api/v1/auth/login
