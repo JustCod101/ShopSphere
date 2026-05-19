@@ -25,7 +25,8 @@ public class InternalAccessRejectFilter implements WebFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String path = exchange.getRequest().getPath().value();
+        // 大小写归一防御纵深（挡 /Internal/、/INTERNAL/ 变体）
+        String path = exchange.getRequest().getPath().value().toLowerCase();
         if (path.equals("/internal") || path.startsWith("/internal/")) {
             return ErrorResponseUtil.write(exchange, HttpStatus.FORBIDDEN, ErrorCode.ROUTE_NOT_FOUND);
         }

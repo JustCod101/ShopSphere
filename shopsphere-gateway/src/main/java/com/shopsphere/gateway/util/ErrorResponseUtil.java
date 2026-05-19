@@ -25,7 +25,12 @@ import java.util.Map;
  *
  * <p>不调用 {@code Result.fail()}：其 traceId 取自 servlet 链路 MDC，网关为 WebFlux 响应式无 MDC。
  * 这里手工构造与 docs §1.1 <b>字段同构</b> 的对象（code/message/data/traceId/timestamp），
- * traceId 优先取 {@code exchange} 属性（由 RequestLogFilter 注入），兜底取响应头。
+ * traceId 取 {@code exchange} 属性（由 RequestLogFilter 注入；§3 不回写客户端响应头，故不再兜底响应头）。
+ *
+ * <ul>
+ *   <li>{@link #write}：自定义 HTTP 状态（如 {@code /internal} 403 + 1004）。</li>
+ *   <li>{@link #writeResult}：业务错误固定 HTTP 200（§1.1，如鉴权失败 1001）。</li>
+ * </ul>
  */
 public final class ErrorResponseUtil {
 
@@ -39,7 +44,17 @@ public final class ErrorResponseUtil {
     private ErrorResponseUtil() {
     }
 
+    /** 自定义 HTTP 状态的统一错误体（如 {@code /internal} → 403 + 1004）。 */
     public static Mono<Void> write(ServerWebExchange exchange, HttpStatus status, ErrorCode ec) {
+        return doWrite(exchange, status, ec);
+    }
+
+    /** 业务错误：HTTP 200 + 统一 {@code Result} 体（§1.1，如鉴权失败 → 200 + 1001）。 */
+    public static Mono<Void> writeResult(ServerWebExchange exchange, ErrorCode ec) {
+        return doWrite(exchange, HttpStatus.OK, ec);
+    }
+
+    private static Mono<Void> doWrite(ServerWebExchange exchange, HttpStatus status, ErrorCode ec) {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(status);
         response.getHeaders().setContentType(
@@ -67,9 +82,6 @@ public final class ErrorResponseUtil {
 
     private static String resolveTraceId(ServerWebExchange exchange) {
         Object attr = exchange.getAttribute(HeaderConstant.X_TRACE_ID);
-        if (attr instanceof String s && !s.isBlank()) {
-            return s;
-        }
-        return exchange.getResponse().getHeaders().getFirst(HeaderConstant.X_TRACE_ID);
+        return (attr instanceof String s && !s.isBlank()) ? s : null;
     }
 }

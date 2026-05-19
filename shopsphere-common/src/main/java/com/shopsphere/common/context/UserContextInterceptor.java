@@ -9,6 +9,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
@@ -27,7 +29,7 @@ public class UserContextInterceptor implements HandlerInterceptor {
         MDC.put(HeaderConstant.MDC_TRACE_ID, traceId);
 
         Long userId = parseUserId(request.getHeader(HeaderConstant.X_USER_ID));
-        String userName = request.getHeader(HeaderConstant.X_USER_NAME);
+        String userName = decodeUserName(request.getHeader(HeaderConstant.X_USER_NAME));
 
         UserContextHolder.set(UserContext.builder()
                 .userId(userId)
@@ -52,6 +54,21 @@ public class UserContextInterceptor implements HandlerInterceptor {
     private boolean isPublic(HandlerMethod hm) {
         return hm.hasMethodAnnotation(PublicApi.class)
                 || hm.getBeanType().isAnnotationPresent(PublicApi.class);
+    }
+
+    /**
+     * X-User-Name 由 Gateway 以 application/x-www-form-urlencoded(UTF-8) 编码（§3），此处对称解码。
+     * 解码失败（异常编码）回退原值，绝不抛异常打断请求。
+     */
+    private String decodeUserName(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        try {
+            return URLDecoder.decode(raw, StandardCharsets.UTF_8);
+        } catch (RuntimeException e) {
+            return raw;
+        }
     }
 
     private Long parseUserId(String raw) {

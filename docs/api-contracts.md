@@ -87,14 +87,18 @@ CLAUDE.md 铁律："禁止在业务服务中校验 JWT（网关已处理）"。G
 约定（已拍板，三头名固定，不再变更）：
 - 下游用统一 `UserContextInterceptor`（放 `shopsphere-common`）从 header 读取，封装到 `ThreadLocal` UserContext，**禁止业务代码直接读 header**。
 - **安全**：Gateway 必须在路由前主动**剥离外部传入的 `X-User-*` 与 `X-Trace-Id` 头**，再由网关重新注入，防伪造。
-- `X-Trace-Id`：Gateway 全局过滤器生成（UUID 去横线，32 位 hex），全链路透传，写入 `Result.traceId` 与日志 MDC（key 约定 `traceId`）。
+- `X-Trace-Id`：Gateway 全局过滤器生成（UUID 去横线，32 位 hex），全链路透传，写入 `Result.traceId` 与日志 MDC（key 约定 `traceId`）；**仅内部链路，不回写客户端响应头**。
+- `X-User-Name`：Gateway 以 `application/x-www-form-urlencoded`（UTF-8，`URLEncoder.encode`）编码后写头；下游 `UserContextInterceptor` 必须 `URLDecoder.decode(UTF-8)` **对称解码**（解码失败回退原值，不抛异常）。
 - 需要登录的接口若无 `X-User-Id` → 返回 `1001` 未认证（由 common 拦截器统一处理）。
 
 ### 3.1 Gateway 公开路径白名单 ✅**M1 已拍板**
 
-- **载体**：Nacos Config，`dataId=shopsphere-gateway.yaml`，路径 `security.whitelist`（数组），Gateway 启动加载并支持热更新（`@RefreshScope`）。
+- **载体**：Nacos Config，`dataId=shopsphere-gateway.yaml`，路径 `security.whitelist`（数组），Gateway 启动加载并支持热更新。
+  > 实现说明（T1.2 拍板）：热更新由 `@ConfigurationProperties` + Spring Cloud `ConfigurationPropertiesRebinder` 自动重绑实现（**非 `@RefreshScope`**——后者惰性重建，无访问者不触发，不适用于过滤器持有的单例）。白名单字段以 `volatile` 不可变拷贝整体替换，读写无锁一致。
 - **匹配**：Ant 风格路径匹配；命中白名单 → 跳过 JWT 校验直接放行（不注入 `X-User-*`）；未命中 → 强制 JWT，失败返回 `1001`。
+  > 版本前缀归一（T1.2 拍板，对齐 §10）：白名单按**去版本**对外路径配置（即 `/api/product/**`，不写 `/api/v1/product/**`）。Gateway 鉴权判定前将 `/api/v1/<x>` 归一为 `/api/<x>` 再做 Ant 匹配，与下游 `RewritePath`（剥离 `v1`）语义一致，使 `/api/**` 与 `/api/v1/**` 鉴权决策恒等。新增版本段时归一规则需同步扩展。
 - **`/internal/**` 不在白名单也不放行**，由 §4.1 路由层显式拒绝（优先级高于白名单）。
+- **CORS 预检放行**：跨域 `OPTIONS` 预检不带 `Authorization`，由 Nacos `spring.cloud.gateway.globalcors` 在网关 handler 映射阶段短路（先于 GlobalFilter 链）；`JwtAuthFilter` 对 `OPTIONS` 额外显式放行作机制无关的防御纵深，预检不计入鉴权。（无独立 `CorsWebFilter` bean。）
 - 初始白名单（开工基线，可经 Nacos 增改）：
 
 ```yaml
@@ -328,7 +332,8 @@ Resp:   data: { "orderId": 123, "status": "CREATED", "totalAmount": 199.00,
 |---|---|---|
 | 接口版本 | 路由前缀引入 `/api/v1/**`（Gateway 重写，下游不感知）；本契约现有路径视为 v1 | Phase 1（Gateway 路由时一并） |
 | 链路追踪 | Micrometer Tracing + OTel，`traceId` 复用 `X-Trace-Id`；Python 用 opentelemetry-sdk 串联 | Phase 5 |
-| JWT 密钥 | 非对称 RS256，私钥仅 User 签发、公钥经 Nacos 下发 Gateway 校验；密钥轮换走 Nacos 配置版本 | Phase 1（T1.2/T1.3） |
+| JWT 密钥 | 非对称 RS256，私钥仅 User 签发、公钥经 Nacos 下发 Gateway 校验；公钥 `dataId=shopsphere-jwt-public-key.pem`（裸 PEM，Gateway 经 Nacos 监听热更新，**零重启**轮换）；claims 契约固定 `userId`(long) / `userName`(string)，T1.2↔T1.3 据此对齐 | Phase 1（T1.2/T1.3） |
+| JWT 密钥轮换过渡 | **T1.2 为单公钥**：切换瞬间旧私钥签发的有效 token 立即失效，不达"零 token 失效"。多公钥并存（按 `kid` 新旧并行一个过渡窗口，或"先发公钥后切私钥"的有序流程）列为后续增强，由 T1.3（签发侧）协同落地 | Phase 1+ / 后续治理 |
 | Nacos 敏感配置 | DB/MQ 口令用 Nacos 配置 + Jasypt 加密；密钥经环境变量注入，不入库 | Phase 0（T0.2） |
 | 注册登录防爆破 | 登录失败计数（Redis），同账号 5 次/10min 锁定；注册加图形/滑块验证码 | Phase 1（T1.3） |
 | `t_user_behavior` 量级 | 按月分表 + 仅保留近 90 天热数据，冷数据归档；推荐侧 `behavior_event` 同策略 | Phase 4 / 后续治理 |

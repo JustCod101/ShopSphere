@@ -3,13 +3,19 @@ logging:
   level:
     org.springframework.cloud.gateway: INFO
   pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-}]"
+    # traceId 由 RequestLogFilter 以 traceId= 字段显式输出；响应式无 MDC，不用 %X{traceId}
+    level: "%5p [${spring.application.name:}]"
 
 management:
+  # 管理端独立端口 + 仅回环绑定，移出对外 8080 并最小化暴露面
+  # （拓扑泄漏/refresh DoS 仅本机可达；容器/k8s 部署如需 kubelet 探针，按受控网段放开 address）
+  server:
+    port: 8090
+    address: 127.0.0.1
   endpoints:
     web:
       exposure:
-        include: gateway,health,refresh
+        include: health,gateway,refresh
   endpoint:
     gateway:
       enabled: true

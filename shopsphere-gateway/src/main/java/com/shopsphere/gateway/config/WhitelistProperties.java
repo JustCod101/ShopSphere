@@ -1,8 +1,6 @@
 package com.shopsphere.gateway.config;
 
 import jakarta.annotation.PostConstruct;
-import lombok.Getter;
-import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -10,7 +8,6 @@ import org.springframework.cloud.context.scope.refresh.RefreshScopeRefreshedEven
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -22,16 +19,26 @@ import java.util.List;
  * <p>热更新机制：{@code @ConfigurationProperties} bean 在 Nacos 变更触发的 {@code EnvironmentChangeEvent}
  * 时由 Spring Cloud {@code ConfigurationPropertiesRebinder} 自动重绑（无需 {@code @RefreshScope}——后者是惰性
  * 重建，无访问者则不触发）。{@link #onRefreshed} 监听刷新完成事件，提供可观测的生效日志，并作为 T1.2 重载钩子。
+ *
+ * <p>并发（S3）：重绑线程经 {@link #setWhitelist} 整体替换 {@code volatile} 引用为不可变拷贝，
+ * 鉴权读线程经 {@link #getWhitelist} 取到一致快照；无原地修改，{@code AntPathMatcher} 遍历期间不会
+ * {@code ConcurrentModificationException}，亦无可见性窗口。
  */
-@Getter
-@Setter
 @Component
 @ConfigurationProperties(prefix = "security")
 public class WhitelistProperties {
 
     private static final Logger log = LoggerFactory.getLogger(WhitelistProperties.class);
 
-    private List<String> whitelist = new ArrayList<>();
+    private volatile List<String> whitelist = List.of();
+
+    public List<String> getWhitelist() {
+        return whitelist;
+    }
+
+    public void setWhitelist(List<String> whitelist) {
+        this.whitelist = (whitelist == null) ? List.of() : List.copyOf(whitelist);
+    }
 
     @PostConstruct
     public void logLoaded() {
