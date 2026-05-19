@@ -1,0 +1,17 @@
+# 仅放本地非业务项；路由 / CORS / 白名单一律由 Nacos dataId shopsphere-gateway.yaml 下发
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-}]"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: gateway,health,refresh
+  endpoint:
+    gateway:
+      enabled: true
+    health:
+      show-details: never

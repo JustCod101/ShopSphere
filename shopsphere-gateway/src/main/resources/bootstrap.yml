@@ -1,0 +1,20 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: shopsphere-gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:localhost}:8848
+        namespace: dev
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_HOST:localhost}:8848
+        namespace: dev
+        group: DEFAULT_GROUP
+        file-extension: yaml
+        refresh-enabled: true
+        # dataId 自动 = ${spring.application.name}.${file-extension} = shopsphere-gateway.yaml
+        # 路由表 / globalcors / security.whitelist 全部在该 dataId，禁止写入 application.yml
