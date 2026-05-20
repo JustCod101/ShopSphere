@@ -190,11 +190,11 @@ Gateway 路由、`docker-compose`、Nacos 注册统一以此为准：
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
-| POST | `/api/user/register` | P | body: username/password/email/phone |
-| POST | `/api/user/login` | P | 返回 `{ token, expiresIn }` |
-| GET | `/api/user/me` | A | 当前用户信息 |
+| POST | `/api/user/register` | P | body: username/password/email/phone；冲突 `2001` |
+| POST | `/api/user/login` | P | 返回 `{ token, expiresIn(秒) }`；用户不存在 `2003`、密码错 `2002`；命中防爆破锁定（§10）返 `2002` + `message="账号已临时锁定，请稍后再试"`（与限流复用同号，仅 message 区分，避免账号枚举） |
+| GET | `/api/user/me` | A | 当前用户信息，响应**不含** `passwordHash` |
 | POST | `/api/user/behavior` | A | 行为埋点；异步入 MQ（见 §7），非阻塞 |
-| GET | `/internal/user/{id}` | 内部 | Feign |
+| GET | `/internal/user/{id}` | 内部 | Feign，签名 `UserFeignClient.getById`；不存在 `2003` |
 
 ### 6.2 Product `/api/product`
 
@@ -335,5 +335,5 @@ Resp:   data: { "orderId": 123, "status": "CREATED", "totalAmount": 199.00,
 | JWT 密钥 | 非对称 RS256，私钥仅 User 签发、公钥经 Nacos 下发 Gateway 校验；公钥 `dataId=shopsphere-jwt-public-key.pem`（裸 PEM，Gateway 经 Nacos 监听热更新，**零重启**轮换）；claims 契约固定 `userId`(long) / `userName`(string)，T1.2↔T1.3 据此对齐 | Phase 1（T1.2/T1.3） |
 | JWT 密钥轮换过渡 | **T1.2 为单公钥**：切换瞬间旧私钥签发的有效 token 立即失效，不达"零 token 失效"。多公钥并存（按 `kid` 新旧并行一个过渡窗口，或"先发公钥后切私钥"的有序流程）列为后续增强，由 T1.3（签发侧）协同落地 | Phase 1+ / 后续治理 |
 | Nacos 敏感配置 | DB/MQ 口令用 Nacos 配置 + Jasypt 加密；密钥经环境变量注入，不入库 | Phase 0（T0.2） |
-| 注册登录防爆破 | 登录失败计数（Redis），同账号 5 次/10min 锁定；注册加图形/滑块验证码 | Phase 1（T1.3） |
+| 注册登录防爆破 | 登录失败计数（Redis），同账号 5 次/10min 锁定 30min；锁定返 `2002` + 自定义 message。注册加图形/滑块验证码 ⏳ 后续 | Phase 1（T1.3 ✅ 失败计数/锁定已落地于 `LoginAttemptService`；验证码后续） |
 | `t_user_behavior` 量级 | 按月分表 + 仅保留近 90 天热数据，冷数据归档；推荐侧 `behavior_event` 同策略 | Phase 4 / 后续治理 |

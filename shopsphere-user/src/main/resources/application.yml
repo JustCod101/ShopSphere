@@ -1,0 +1,36 @@
+# 本地非业务项；jwt.private-key / DB 密码等机密由 Nacos shopsphere-user-${profile}.yaml 下发（Jasypt）。
+# 路由/CORS 不在此处（由网关管理），白名单语义由 @PublicApi 注解就地声明。
+
+logging:
+  level:
+    com.shopsphere.user: INFO
+  pattern:
+    # traceId 由 MDC 注入（UserContextInterceptor 写入 key=traceId）
+    level: "%5p [${spring.application.name:}] [traceId=%X{traceId:-}]"
+
+spring:
+  jackson:
+    # 跨服务/对外时间字段统一 ISO-8601 UTC（OffsetDateTime），禁止 epoch（CLAUDE.md / 契约 §1.1）
+    serialization:
+      write-dates-as-timestamps: false
+    date-format: yyyy-MM-dd'T'HH:mm:ss.SSSXXX
+    time-zone: UTC
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: ASSIGN_ID         # MP 内置雪花
+  # 全部走注解 Mapper（@Select），无 XML；mapper-locations 留空避免误导
+  type-handlers-package: com.shopsphere.user.support
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

@@ -1,0 +1,20 @@
+# Nacos dataId: shopsphere-user.yaml
+# namespace: dev   group: DEFAULT_GROUP
+# 跨环境共享非密配置（JWT 过期、防爆破阈值、共享引用）。
+# 环境特有密配置见 shopsphere-user-${profile}.yaml（jwt.private-key, DB 密码，Jasypt 加密）。
+
+jwt:
+  # token 有效期；与 LoginVO.expiresIn 字段一致
+  expire-seconds: 7200
+  public-key:
+    # 仅做契约文档留位；User 服务不验签（验签在 Gateway）
+    data-id: shopsphere-jwt-public-key.pem
+
+# 防爆破（契约 §10 Phase 1）：滚动 10min 5 次 → 锁 30min
+login:
+  attempt:
+    max-fail: 5
+    window-seconds: 600
+    lock-seconds: 1800
+    key-prefix: "user:login:fail:"
+    lock-prefix: "user:login:lock:"

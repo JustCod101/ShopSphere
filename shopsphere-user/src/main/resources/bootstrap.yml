@@ -1,0 +1,28 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: shopsphere-user
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:localhost}:8848
+        namespace: dev
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_HOST:localhost}:8848
+        namespace: dev
+        group: DEFAULT_GROUP
+        file-extension: yaml
+        refresh-enabled: true
+        # 共享非密配置：shopsphere-user.yaml（JWT 过期、防爆破阈值）
+        # 环境密配置：    shopsphere-user-${profile}.yaml（jwt.private-key、DB 密码，Jasypt 加密）
+        # 自动加载 ${spring.application.name}.yaml + ${spring.application.name}-${profile}.yaml
+
+# Jasypt 主密钥仅由环境变量 JASYPT_ENCRYPTOR_PASSWORD 注入，不落配置文件
+jasypt:
+  encryptor:
+    password: ${JASYPT_ENCRYPTOR_PASSWORD:}

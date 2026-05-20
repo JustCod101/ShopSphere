@@ -15,6 +15,7 @@
         <module>shopsphere-common</module>
         <module>shopsphere-api</module>
         <module>shopsphere-gateway</module>
+        <module>shopsphere-user</module>
     </modules>
 
     <properties>
@@ -26,7 +27,7 @@
         <spring-boot.version>3.2.5</spring-boot.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
         <spring-cloud-alibaba.version>2023.0.1.0</spring-cloud-alibaba.version>
-        <mybatis-plus.version>3.5.5</mybatis-plus.version>
+        <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <seata.version>1.8.0</seata.version>
         <hutool.version>5.8.27</hutool.version>
         <jjwt.version>0.12.5</jjwt.version>
@@ -60,9 +61,11 @@
             </dependency>
 
             <!-- 显式锁定 -->
+            <!-- MyBatis-Plus 3.5.7+ 拆分 boot3 starter，专用于 Spring Boot 3.x；
+                 旧 mybatis-plus-boot-starter 仅适配 Boot 2.x，本工程禁用。 -->
             <dependency>
                 <groupId>com.baomidou</groupId>
-                <artifactId>mybatis-plus-boot-starter</artifactId>
+                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
             <dependency>

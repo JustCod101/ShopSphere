@@ -11,6 +11,10 @@ target/
 # Claude Code 本地设置（用户本机权限，勿入库）
 .claude/settings.local.json
 
+# 密钥兜底：禁止任何模块目录下入库 PEM（公钥 docs/nacos/*.pem 例外，见下行白名单）
+*.pem
+!docs/nacos/*.pem
+
 # IDE / OS
 .idea/
 *.iml
