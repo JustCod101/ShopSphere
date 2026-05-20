@@ -201,11 +201,12 @@ Gateway 路由、`docker-compose`、Nacos 注册统一以此为准：
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
-| GET | `/api/product/{id}` | P | Cache-Aside；防穿透（空值缓存）/防雪崩（TTL 随机） |
-| GET | `/api/product/list?categoryId=&page=&size=` | P | `PageResult` |
-| POST | `/internal/product/stock/try` | 内部 | 库存 TCC-Try：预留(locked)，幂等（§4.3） |
-| POST | `/internal/product/stock/confirm` | 内部 | 库存 TCC-Confirm：真实出库（支付成功），幂等 |
-| POST | `/internal/product/stock/cancel` | 内部 | 库存 TCC-Cancel：释放并回补 Redis，幂等 |
+| GET | `/api/product/{id}` | P | T2.1 已落地（基础查询）；T2.2 接入 Cache-Aside（防穿透空值缓存 / 防雪崩 TTL 随机）。`data.stock = stock - locked_stock`（可售量，§4.3） |
+| GET | `/api/product/list?categoryId=&keyword=&page=&size=` | P | T2.1 已落地。`PageResult`；`size` 上限 100 超出截断；`keyword` 走 name LIKE 模糊匹配 |
+| GET | `/api/product/category/tree` | P | T2.1 已落地（实际挂在 `/api/product/category/tree`，复用现有 `/api/product/**` 路由 + 白名单，零 Gateway 改动） |
+| POST | `/internal/product/stock/try` | 内部 | 库存 TCC-Try：预留(locked)，幂等（§4.3）。**T2.1 仅占位骨架返回 1500，T2.4 落地** |
+| POST | `/internal/product/stock/confirm` | 内部 | 库存 TCC-Confirm：真实出库（支付成功），幂等。**T2.1 占位 1500，T2.4 落地** |
+| POST | `/internal/product/stock/cancel` | 内部 | 库存 TCC-Cancel：释放并回补 Redis，幂等。**T2.1 占位 1500，T2.4 落地** |
 
 ### 6.3 Order `/api/order`
 

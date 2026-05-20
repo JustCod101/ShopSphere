@@ -1,0 +1,10 @@
+# Nacos dataId: shopsphere-product.yaml
+# namespace: dev   group: DEFAULT_GROUP
+# 跨环境共享非密配置（本期 T2.1 暂无业务参数；后续 T2.2 Redis Cache-Aside / T2.3 Lua 预扣会补充）。
+# 环境特有密配置见 shopsphere-product-${profile}.yaml（DB 密码，Jasypt 加密）。
+
+product:
+  # 占位段，T2.2 起补充
+  # cache:
+  #   ttl-seconds: 600
+  #   null-ttl-seconds: 60
