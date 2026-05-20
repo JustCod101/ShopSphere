@@ -18,3 +18,13 @@ login:
     lock-seconds: 1800
     key-prefix: "user:login:fail:"
     lock-prefix: "user:login:lock:"
+
+# 行为埋点（契约 §8 user.behavior，🟡 轻量等级）
+behavior:
+  exchange: shopsphere.behavior
+  routing-key: user.behavior
+  async:
+    core-pool-size: 4
+    max-pool-size: 8
+    queue-capacity: 1000
+    keep-alive-seconds: 60

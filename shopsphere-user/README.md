@@ -16,6 +16,7 @@
 | `POST` | `/api/user/login`    | 公开 | `2003` 用户不存在 / `2002` 密码错 / `2002` + "账号已临时锁定，请稍后再试" |
 | `GET`  | `/api/user/me`       | 需登录 | `1001` 未认证 |
 | `GET`  | `/internal/user/{id}` | 内部 Feign（Gateway 已拒外部） | `2003` 不存在 |
+| `POST` | `/api/user/behavior`   | 需登录 | `1000` actionType 非法 / `1500` 落库失败 |
 
 ## 2. 密钥初始化（**只做一次**）
 
@@ -87,7 +88,34 @@ mvn -q -pl shopsphere-user -am spring-boot:run
 固定 `{userId: Long, userName: String}` + JJWT 内置 iat / exp(RS256)。
 **禁止**改用标准 `sub` / `name` —— 与 Gateway `JwtAuthFilter`(T1.2) 解析键对齐。
 
-## 6. 端到端验证
+## 6. 行为埋点 + 负载测试（T1.4）
+
+### 6.1 启 RabbitMQ
+```bash
+docker compose up -d rabbitmq    # vhost=shopsphere（infra 已声明）
+# 管理 UI: http://localhost:15672  user/pass 见 .env
+```
+Nacos 推送 `shopsphere-user-dev.yaml`（加 rabbitmq 段，Jasypt 加密密码）+ `shopsphere-user.yaml`（加 behavior 段）。
+
+### 6.2 联调
+```bash
+TOKEN=$(curl -sX POST localhost:8080/api/user/login -H 'Content-Type: application/json' \
+        -d '{"username":"alice","password":"Aa12345678"}' | jq -r .data.token)
+curl -X POST localhost:8080/api/user/behavior \
+     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"itemId":1001,"actionType":"view","extra":{"src":"home"}}'
+# code=0；RabbitMQ console exchange shopsphere.behavior published 计数 +1
+# MySQL: SELECT * FROM shopsphere_user.t_user_behavior ORDER BY id DESC LIMIT 1;
+```
+
+### 6.3 负载（k6）
+```bash
+brew install k6                  # 一次性
+TOKEN=$TOKEN k6 run scripts/perf/behavior-load.k6.js
+```
+阈值断言：`http_req_duration{status:200} p(99) < 50ms` @ 500 QPS / 60s。
+
+## 7. 端到端验证
 
 ```bash
 curl -X POST localhost:8080/api/user/register -H 'Content-Type: application/json' \

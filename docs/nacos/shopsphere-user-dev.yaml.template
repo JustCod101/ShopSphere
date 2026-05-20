@@ -39,3 +39,18 @@ spring:
           max-active: 8
           max-idle: 8
           min-idle: 0
+
+  # T1.4 行为埋点 MQ（user.behavior 轻量等级，contract §8）
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ENC(REPLACE_ME_WITH_JASYPT_ENCRYPTED_RABBIT_PASSWORD)
+    virtual-host: shopsphere
+    publisher-confirm-type: correlated   # Spring AMQP 3.1 小写枚举
+    publisher-returns: true
+    connection-timeout: 5000ms
+    template:
+      mandatory: true                     # 与 publisher-returns 配套；无队列绑定即 ReturnCallback
+      retry:
+        enabled: false                    # 轻量场景禁用模板内置重试

@@ -5,6 +5,7 @@ import com.shopsphere.api.user.dto.UserDTO;
 import com.shopsphere.common.config.CommonWebAutoConfiguration;
 import com.shopsphere.common.exception.BusinessException;
 import com.shopsphere.common.result.ErrorCode;
+import com.shopsphere.user.mapper.UserBehaviorMapper;
 import com.shopsphere.user.mapper.UserMapper;
 import com.shopsphere.user.mapper.UserProfileMapper;
 import com.shopsphere.user.service.UserService;
@@ -56,6 +57,8 @@ class InternalUserControllerTest {
     private UserMapper userMapper;
     @MockBean
     private UserProfileMapper userProfileMapper;
+    @MockBean
+    private UserBehaviorMapper userBehaviorMapper;
 
     @Test
     void getById_publicApi_withoutXUserId_isPassedThrough() throws Exception {

@@ -3,10 +3,12 @@ package com.shopsphere.user.controller;
 import com.shopsphere.common.context.PublicApi;
 import com.shopsphere.common.context.UserContextHolder;
 import com.shopsphere.common.result.Result;
+import com.shopsphere.user.dto.BehaviorRequestDTO;
 import com.shopsphere.user.dto.LoginDTO;
 import com.shopsphere.user.dto.LoginVO;
 import com.shopsphere.user.dto.RegisterDTO;
 import com.shopsphere.user.dto.UserVO;
+import com.shopsphere.user.service.BehaviorService;
 import com.shopsphere.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
+    private final BehaviorService behaviorService;
 
     @PublicApi
     @PostMapping("/register")
@@ -46,5 +49,15 @@ public class UserController {
         // 铁律：不读 header，userId 从 UserContextHolder 取（拦截器已注入）
         Long userId = UserContextHolder.get().getUserId();
         return Result.ok(userService.me(userId));
+    }
+
+    /**
+     * 行为埋点（契约 §6.1 / §7 / §8）。需登录；落 t_user_behavior 同步、MQ 发送异步（AFTER_COMMIT）。
+     */
+    @PostMapping("/behavior")
+    public Result<Void> behavior(@Valid @RequestBody BehaviorRequestDTO req) {
+        Long userId = UserContextHolder.get().getUserId();
+        behaviorService.record(userId, req);
+        return Result.ok();
     }
 }

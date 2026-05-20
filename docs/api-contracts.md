@@ -193,7 +193,7 @@ Gateway 路由、`docker-compose`、Nacos 注册统一以此为准：
 | POST | `/api/user/register` | P | body: username/password/email/phone；冲突 `2001` |
 | POST | `/api/user/login` | P | 返回 `{ token, expiresIn(秒) }`；用户不存在 `2003`、密码错 `2002`；命中防爆破锁定（§10）返 `2002` + `message="账号已临时锁定，请稍后再试"`（与限流复用同号，仅 message 区分，避免账号枚举） |
 | GET | `/api/user/me` | A | 当前用户信息，响应**不含** `passwordHash` |
-| POST | `/api/user/behavior` | A | 行为埋点；异步入 MQ（见 §7），非阻塞 |
+| POST | `/api/user/behavior` | A | body: `{itemId, actionType: view\|cart\|order, extra?}`；同步落 `t_user_behavior` 后 `@TransactionalEventListener(AFTER_COMMIT)` 异步发 MQ `shopsphere.behavior / user.behavior`（🟡 轻量，§8）；DB 失败 `1500`；actionType 非法 `1000` |
 | GET | `/internal/user/{id}` | 内部 | Feign，签名 `UserFeignClient.getById`；不存在 `2003` |
 
 ### 6.2 Product `/api/product`

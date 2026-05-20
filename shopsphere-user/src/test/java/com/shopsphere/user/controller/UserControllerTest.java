@@ -5,12 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shopsphere.common.config.CommonWebAutoConfiguration;
 import com.shopsphere.common.exception.BusinessException;
 import com.shopsphere.common.result.ErrorCode;
+import com.shopsphere.user.dto.ActionType;
+import com.shopsphere.user.dto.BehaviorRequestDTO;
 import com.shopsphere.user.dto.LoginDTO;
 import com.shopsphere.user.dto.LoginVO;
 import com.shopsphere.user.dto.RegisterDTO;
 import com.shopsphere.user.dto.UserVO;
 import com.shopsphere.user.mapper.UserMapper;
+import com.shopsphere.user.mapper.UserBehaviorMapper;
 import com.shopsphere.user.mapper.UserProfileMapper;
+import com.shopsphere.user.service.BehaviorService;
 import com.shopsphere.user.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -72,11 +77,16 @@ class UserControllerTest {
     @MockBean
     private UserService userService;
 
+    @MockBean
+    private BehaviorService behaviorService;
+
     // Mapper 因 @MapperScan 被注册为 bean 定义，未 mock 会要求 SqlSessionFactory
     @MockBean
     private UserMapper userMapper;
     @MockBean
     private UserProfileMapper userProfileMapper;
+    @MockBean
+    private UserBehaviorMapper userBehaviorMapper;
 
     // ---------------------- 注册：参数校验 ----------------------
 
@@ -238,5 +248,70 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
 
         verify(userService).me(100L);
+    }
+
+    // ---------------------- /behavior（T1.4） ----------------------
+
+    @Test
+    void behavior_withoutXUserId_returns1001_byUserContextInterceptor() throws Exception {
+        BehaviorRequestDTO req = new BehaviorRequestDTO();
+        req.setItemId(1001L);
+        req.setActionType(ActionType.VIEW);
+
+        mvc.perform(post("/api/user/behavior")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ErrorCode.UNAUTHORIZED.getCode()));
+
+        verify(behaviorService, never()).record(any(), any());
+    }
+
+    @Test
+    void behavior_invalidActionType_returns1000_byHttpMessageNotReadableHandler() throws Exception {
+        // 直接拼非法 JSON 触发 enum 反序列化失败
+        String body = "{\"itemId\":1001,\"actionType\":\"hover\"}";
+
+        mvc.perform(post("/api/user/behavior")
+                        .header("X-User-Id", "100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ErrorCode.PARAM_INVALID.getCode()))
+                .andExpect(jsonPath("$.message", org.hamcrest.Matchers.containsString("view/cart/order")));
+
+        verify(behaviorService, never()).record(any(), any());
+    }
+
+    @Test
+    void behavior_missingItemId_returns1000_byBeanValidation() throws Exception {
+        String body = "{\"actionType\":\"view\"}";
+
+        mvc.perform(post("/api/user/behavior")
+                        .header("X-User-Id", "100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ErrorCode.PARAM_INVALID.getCode()))
+                .andExpect(jsonPath("$.message", org.hamcrest.Matchers.containsString("itemId")));
+
+        verify(behaviorService, never()).record(any(), any());
+    }
+
+    @Test
+    void behavior_validRequest_withXUserId_invokesService_returns0() throws Exception {
+        BehaviorRequestDTO req = new BehaviorRequestDTO();
+        req.setItemId(1001L);
+        req.setActionType(ActionType.VIEW);
+
+        mvc.perform(post("/api/user/behavior")
+                        .header("X-User-Id", "100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        verify(behaviorService).record(eq(100L), any(BehaviorRequestDTO.class));
     }
 }
