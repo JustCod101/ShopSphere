@@ -1,0 +1,32 @@
+[
+  {
+    "resource": "api-user-login",
+    "resourceMode": 1,
+    "grade": 1,
+    "count": 20,
+    "controlBehavior": 0,
+    "intervalSec": 1,
+    "burst": 0,
+    "limitApp": "default"
+  },
+  {
+    "resource": "api-user-register",
+    "resourceMode": 1,
+    "grade": 1,
+    "count": 5,
+    "controlBehavior": 0,
+    "intervalSec": 1,
+    "burst": 0,
+    "limitApp": "default"
+  },
+  {
+    "resource": "api-user-behavior",
+    "resourceMode": 1,
+    "grade": 1,
+    "count": 200,
+    "controlBehavior": 0,
+    "intervalSec": 1,
+    "burst": 0,
+    "limitApp": "default"
+  }
+]

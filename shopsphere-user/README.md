@@ -115,7 +115,30 @@ TOKEN=$TOKEN k6 run scripts/perf/behavior-load.k6.js
 ```
 阈值断言：`http_req_duration{status:200} p(99) < 50ms` @ 500 QPS / 60s。
 
-## 7. 端到端验证
+## 7. Sentinel 流控（T1.5）
+
+### 7.1 启 Sentinel Dashboard(infra 已声明 v1.8.8)
+```bash
+docker compose -f docker-compose.infra.yml up -d sentinel-dashboard
+# http://localhost:8858  user/pass: sentinel/sentinel
+```
+
+### 7.2 push 规则到 Nacos
+- `shopsphere-gateway-flow-rules.json`(gw-flow,dev/DEFAULT_GROUP)
+- `shopsphere-user-flow-rules.json`(flow,dev/DEFAULT_GROUP)
+
+镜像在 `docs/nacos/`,首次发布手工粘贴;后续阈值热改 5s 内生效。完整 dataId 清单 + 字段语义见 `docs/sentinel-rules.md`。
+
+### 7.3 启服务后看 Dashboard
+启 gateway + user 后,Dashboard "机器列表" 应见 `shopsphere-gateway`(8719) + `shopsphere-user`(8720) 两节点(`eager: true` 启动即上报)。"流控规则" 显示从 Nacos 加载的 3 条 + 3 条。
+
+### 7.4 压测验证(k6)
+```bash
+k6 run scripts/perf/sentinel-login-load.k6.js
+# 1000 次 50 VUs → 至少 900 次 code=1003,traceId 全部非空
+```
+
+## 8. 端到端验证
 
 ```bash
 curl -X POST localhost:8080/api/user/register -H 'Content-Type: application/json' \

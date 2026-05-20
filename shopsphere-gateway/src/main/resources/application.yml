@@ -6,6 +6,24 @@ logging:
     # traceId 由 RequestLogFilter 以 traceId= 字段显式输出；响应式无 MDC，不用 %X{traceId}
     level: "%5p [${spring.application.name:}]"
 
+spring:
+  cloud:
+    # T1.5 Sentinel 流控：Nacos 规则热加载 + Dashboard 实时观测
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:localhost:8858}
+        port: 8719                    # client 心跳/规则 push 监听端口
+      eager: true                      # 启动即注册节点，Dashboard 立即可见
+      datasource:
+        gw-flow:
+          nacos:
+            server-addr: ${NACOS_HOST:localhost}:8848
+            namespace: dev
+            group-id: DEFAULT_GROUP
+            data-id: shopsphere-gateway-flow-rules.json
+            data-type: json
+            rule-type: gw-flow
+
 management:
   # 管理端独立端口 + 仅回环绑定，移出对外 8080 并最小化暴露面
   # （拓扑泄漏/refresh DoS 仅本机可达；容器/k8s 部署如需 kubelet 探针，按受控网段放开 address）

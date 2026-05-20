@@ -38,6 +38,16 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Sentinel 流控（T1.5）：MVC 入口拦截 + Nacos 规则热加载 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
+
         <!-- Spring Cloud Alibaba：Nacos 发现 / 配置 -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>

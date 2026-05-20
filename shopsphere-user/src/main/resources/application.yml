@@ -15,6 +15,24 @@ spring:
       write-dates-as-timestamps: false
     date-format: yyyy-MM-dd'T'HH:mm:ss.SSSXXX
     time-zone: UTC
+  cloud:
+    # T1.5 业务侧防御纵深限流（网关绕过/内网直连场景）
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:localhost:8858}
+        port: 8720                  # 与 Gateway 8719 错开
+      eager: true
+      filter:
+        enabled: true               # 注册 SentinelWebInterceptor 拦截所有 MVC 请求
+      datasource:
+        flow:
+          nacos:
+            server-addr: ${NACOS_HOST:localhost}:8848
+            namespace: dev
+            group-id: DEFAULT_GROUP
+            data-id: shopsphere-user-flow-rules.json
+            data-type: json
+            rule-type: flow
 
 mybatis-plus:
   configuration:

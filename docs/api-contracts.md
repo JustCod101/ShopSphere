@@ -71,6 +71,7 @@ CLAUDE.md 强制："所有外部接口返回 Result<T> 统一包装"。**包括 
 - 错误码常量集中定义在 `shopsphere-common`（如 `ErrorCode` 枚举），所有 Java 服务引用，禁止散落魔法数字。
 - Python 服务维护一份对齐的 `error_code.py`，号段 `5xxx`，复用通用 `1xxx`。
 - **M5 已拍板 · 通用码 vs 服务段码边界**：业务语义明确的"资源不存在"**一律用服务段码**（用户不存在 `2003`、商品不存在 `3001`、订单不存在 `4001`）；通用 `1004` **仅用于 Gateway 路由层未匹配路由 / 未归类资源**，业务服务内禁止返回 `1004`。
+- **`1003` 由 Sentinel 触发（T1.5 已落地）**：网关层按 API 分组、业务层按 URI 双层限流；规则在 Nacos `shopsphere-{gateway,user}-flow-rules.json` 热加载；响应固定 `HTTP 200 + body.code=1003 + traceId`。详见 `docs/sentinel-rules.md`。
 
 ---
 

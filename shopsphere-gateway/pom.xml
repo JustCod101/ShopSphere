@@ -35,6 +35,20 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bootstrap</artifactId>
         </dependency>
+
+        <!-- Sentinel 流控（T1.5）：starter + Spring Cloud Gateway 适配器 + Nacos 规则数据源 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-spring-cloud-gateway-adapter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
         <!-- 仅取 Result/ErrorCode/HeaderConstant；其 provided 依赖不传递，servlet/feign 不会进网关 -->
         <dependency>
             <groupId>com.shopsphere</groupId>
