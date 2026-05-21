@@ -127,6 +127,19 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Testcontainers：StockRedisService 集成测试用真 Redis（embedded-redis 已弃维护）。
+             版本由 spring-boot-dependencies BOM 管理（testcontainers 1.19.7）。运行需 Docker。 -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -142,6 +155,19 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- Testcontainers（StockRedisServiceTest）用：固定 docker-java 请求的 API 版本。
+                 新版 Docker 守护进程 MinAPIVersion=1.44，而 testcontainers 1.19.7 的 docker-java
+                 默认请求 1.43 会被拒（HTTP 400）。docker-java 从系统属性 api.version 读取该值；
+                 1.44 对 Docker 25~29+ 守护进程均兼容。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <api.version>1.44</api.version>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
         </plugins>
     </build>

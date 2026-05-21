@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
@@ -27,10 +26,14 @@ import java.util.function.Function;
  *
  * <h3>键设计</h3>
  * <ul>
- *   <li>{@code product:detail:{id}} —— 静态字段缓存（不含 stock，避免与库存不一致）</li>
- *   <li>{@code stock:product:{id}}  —— 可售量纯数字（T2.3 Lua 接管，本期 miss 路径首写 baseline）</li>
+ *   <li>{@code product:detail:{id}} —— 静态字段缓存（不含 stock），本类维护，带随机 TTL</li>
  *   <li>{@code lock:product:detail:{id}} —— 防击穿 Redisson 互斥锁</li>
  * </ul>
+ *
+ * <h3>stock 字段（T2.3 起）</h3>
+ * 库存 {@code stock:product:{id}} 是常驻计数器，<b>所有权属 {@link StockRedisService}</b>，
+ * 本类不再读写该 key —— 详情命中后调 {@code stockRedisService.getAvailable} 拼装 stock；
+ * 计数器缺失（罕见）则只读兜底 DB sellable，不回填 Redis（避免雪崩重建错误库存）。
  *
  * <h3>三防</h3>
  * <ul>
@@ -39,9 +42,6 @@ import java.util.function.Function;
  *       拿不到锁 → 间隔 100ms 重读缓存 3 次 → 仍无则降级直查 DB</li>
  *   <li><b>防雪崩</b>：TTL = 30min + 0~300s 随机抖动，避免大批 key 同刻失效</li>
  * </ul>
- *
- * <h3>失效模式（fail-open）</h3>
- * Redis / Redisson 不可用时由调用方上抛异常，全局兜底；本类不吞异常，命中率埋点亦如实计数。
  */
 @Slf4j
 @Service
@@ -49,7 +49,6 @@ import java.util.function.Function;
 public class ProductCacheService {
 
     static final String DETAIL_KEY_PREFIX = "product:detail:";
-    static final String STOCK_KEY_PREFIX = "stock:product:";
     static final String LOCK_KEY_PREFIX = "lock:product:detail:";
     /** 防穿透空值标记；与正常 JSON 不会撞（正常值是对象，标记是裸字符串）。 */
     static final String NULL_MARKER = "__NULL__";
@@ -64,10 +63,10 @@ public class ProductCacheService {
     static final long DOUBLE_DEL_DELAY_MS = 500;
 
     private final RedisTemplate<String, Object> redisTemplate;
-    private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final TaskScheduler cacheTaskScheduler;
     private final MeterRegistry meterRegistry;
+    private final StockRedisService stockRedisService;
 
     private Counter hitCounter;
     private Counter missCounter;
@@ -95,7 +94,7 @@ public class ProductCacheService {
      *
      * @param id       商品 id
      * @param dbLoader DB 加载器，返回 {@code null} 表示商品不存在（触发空值标记 + 3001）
-     * @return 完整详情 VO（静态字段来自缓存，stock 来自 stock key 实时读）
+     * @return 完整详情 VO（静态字段来自缓存，stock 来自 {@link StockRedisService} 实时读）
      * @throws BusinessException PRODUCT_NOT_FOUND(3001) —— 商品不存在或命中空值标记
      */
     public ProductDetailVO getOrLoadDetail(Long id, Function<Long, ProductDetailVO> dbLoader) {
@@ -131,7 +130,6 @@ public class ProductCacheService {
                     throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
                 }
                 cacheStatic(id, loaded);
-                cacheStock(id, loaded.getStock());
                 return loaded;
             } finally {
                 if (lock.isHeldByCurrentThread()) {
@@ -184,25 +182,21 @@ public class ProductCacheService {
         return vo;
     }
 
-    /** 读 stock key；miss 则回查 DB 补写（T2.2 baseline 写入路径）。 */
+    /**
+     * 解析 stock：读 {@link StockRedisService} 常驻计数器；计数器缺失（罕见，预热后不应发生）
+     * 则用 DB sellable 兜底展示，<b>只读不回填 Redis</b>（库存计数器不由缓存层重建）。
+     */
     private Integer resolveStock(Long id, Function<Long, ProductDetailVO> dbLoader) {
-        String cached = stringRedisTemplate.opsForValue().get(stockKey(id));
-        if (cached != null) {
-            try {
-                return Integer.parseInt(cached);
-            } catch (NumberFormatException e) {
-                log.warn("corrupt stock value '{}' for productId={}, reloading from DB", cached, id);
-            }
+        long available = stockRedisService.getAvailable(id);
+        if (available != StockRedisService.RESULT_KEY_MISSING) {
+            return (int) available;
         }
-        ProductDetailVO loaded = dbLoader.apply(id);
-        if (loaded == null) {
-            return 0;
-        }
-        cacheStock(id, loaded.getStock());
-        return loaded.getStock();
+        log.warn("stock counter missing for productId={}, falling back to DB for display", id);
+        ProductDetailVO fromDb = dbLoader.apply(id);
+        return fromDb == null ? 0 : fromDb.getStock();
     }
 
-    /** 缓存静态字段（stock 置 null，库存独立 key 维护）。 */
+    /** 缓存静态字段（stock 置 null，库存独立 key 由 StockRedisService 维护）。 */
     private void cacheStatic(Long id, ProductDetailVO vo) {
         ProductDetailVO staticOnly = ProductDetailVO.builder()
                 .id(vo.getId())
@@ -217,31 +211,24 @@ public class ProductCacheService {
         redisTemplate.opsForValue().set(detailKey(id), staticOnly, randomTtl());
     }
 
-    private void cacheStock(Long id, Integer sellable) {
-        if (sellable == null) {
-            return;
-        }
-        stringRedisTemplate.opsForValue().set(stockKey(id), sellable.toString(), randomTtl());
-    }
-
     private void cacheNullMarker(Long id) {
         redisTemplate.opsForValue()
                 .set(detailKey(id), NULL_MARKER, Duration.ofSeconds(NULL_TTL_SECONDS));
     }
 
     /**
-     * 主动失效（延迟双删）：同步删一次 → DB 操作期间可能有并发回填 → 500ms 后异步再删一次。
+     * 主动失效详情缓存（延迟双删）：同步删 → 500ms 后异步再删。
+     *
+     * <p><b>只删 {@code product:detail:{id}}</b>：{@code stock:product:{id}} 是常驻库存计数器
+     * （T2.3 起由 {@link StockRedisService} 维护），商品静态信息变更不应清空库存。
      * <p>T2.2 暂无业务写路径调用此方法；T2.x 后台 update/delete 落地时接入。
      */
     public void invalidate(Long id) {
         String detailKey = detailKey(id);
-        String stockKey = stockKey(id);
         redisTemplate.delete(detailKey);
-        stringRedisTemplate.delete(stockKey);
-        cacheTaskScheduler.schedule(() -> {
-            redisTemplate.delete(detailKey);
-            stringRedisTemplate.delete(stockKey);
-        }, Instant.now().plusMillis(DOUBLE_DEL_DELAY_MS));
+        cacheTaskScheduler.schedule(
+                () -> redisTemplate.delete(detailKey),
+                Instant.now().plusMillis(DOUBLE_DEL_DELAY_MS));
         invalidateCounter.increment();
     }
 
@@ -253,10 +240,6 @@ public class ProductCacheService {
 
     private String detailKey(Long id) {
         return DETAIL_KEY_PREFIX + id;
-    }
-
-    private String stockKey(Long id) {
-        return STOCK_KEY_PREFIX + id;
     }
 
     private String lockKey(Long id) {

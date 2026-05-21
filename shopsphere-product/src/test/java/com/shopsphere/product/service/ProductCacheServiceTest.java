@@ -11,7 +11,6 @@ import org.mockito.ArgumentCaptor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.scheduling.TaskScheduler;
 
@@ -38,36 +37,32 @@ import static org.mockito.Mockito.when;
 /**
  * ProductCacheService 单测（纯 Mockito，不连真 Redis）。
  *
- * <p>覆盖 cache-aside 全分支：命中（静态+stock）/ 空值标记 / 防击穿抢锁成功 / 抢锁失败重试 /
- * 重试耗尽降级 / stock key 单独 miss 补写 / 延迟双删。
+ * <p>T2.3 后 stock 由 {@link StockRedisService} 常驻计数器提供，本类不再读写 stock key；
+ * 故 stock 相关用例改为 mock {@code stockRedisService.getAvailable}，{@code invalidate} 只删详情 key。
  */
 class ProductCacheServiceTest {
 
     private static final long ID = 2001L;
     private static final String DETAIL_KEY = "product:detail:2001";
-    private static final String STOCK_KEY = "stock:product:2001";
 
     @SuppressWarnings("unchecked")
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, Object> valueOps = mock(ValueOperations.class);
-    private final StringRedisTemplate stringRedisTemplate = mock(StringRedisTemplate.class);
-    @SuppressWarnings("unchecked")
-    private final ValueOperations<String, String> stringValueOps = mock(ValueOperations.class);
     private final RedissonClient redissonClient = mock(RedissonClient.class);
     private final RLock lock = mock(RLock.class);
     private final TaskScheduler taskScheduler = mock(TaskScheduler.class);
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final StockRedisService stockRedisService = mock(StockRedisService.class);
 
     private ProductCacheService service;
 
     @BeforeEach
     void setUp() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOps);
         when(redissonClient.getLock(anyString())).thenReturn(lock);
-        service = new ProductCacheService(redisTemplate, stringRedisTemplate,
-                redissonClient, taskScheduler, meterRegistry);
+        service = new ProductCacheService(redisTemplate, redissonClient,
+                taskScheduler, meterRegistry, stockRedisService);
         service.initCounters();
     }
 
@@ -99,15 +94,15 @@ class ProductCacheServiceTest {
     // ---------------------- 缓存命中 ----------------------
 
     @Test
-    void cacheHit_assemblesStaticPlusStockFromStockKey() {
+    void cacheHit_assemblesStaticPlusStockFromCounter() {
         when(valueOps.get(DETAIL_KEY)).thenReturn(staticVo());
-        when(stringValueOps.get(STOCK_KEY)).thenReturn("55");
+        when(stockRedisService.getAvailable(ID)).thenReturn(55L);
         Function<Long, ProductDetailVO> loader = loaderReturning(fullVo(999));
 
         ProductDetailVO vo = service.getOrLoadDetail(ID, loader);
 
         assertEquals(ID, vo.getId());
-        assertEquals(55, vo.getStock(), "stock 取自 stock key，非详情缓存");
+        assertEquals(55, vo.getStock(), "stock 取自 StockRedisService 常驻计数器");
         verify(loader, never()).apply(any());
         assertEquals(1.0, counter("product.detail.cache.hit"));
     }
@@ -123,46 +118,36 @@ class ProductCacheServiceTest {
     }
 
     @Test
-    void cacheHit_stockKeyMiss_fallsBackToDbLoaderAndBackfills() {
+    void cacheHit_stockCounterMissing_fallsBackToDbSellable() {
         when(valueOps.get(DETAIL_KEY)).thenReturn(staticVo());
-        when(stringValueOps.get(STOCK_KEY)).thenReturn(null);
+        when(stockRedisService.getAvailable(ID))
+                .thenReturn(StockRedisService.RESULT_KEY_MISSING);
         Function<Long, ProductDetailVO> loader = loaderReturning(fullVo(33));
 
         ProductDetailVO vo = service.getOrLoadDetail(ID, loader);
 
-        assertEquals(33, vo.getStock());
+        assertEquals(33, vo.getStock(), "计数器缺失 → 用 DB sellable 兜底展示");
         verify(loader).apply(ID);
-        // 回查后补写 stock key
-        verify(stringValueOps).set(eq(STOCK_KEY), eq("33"), any(Duration.class));
-    }
-
-    @Test
-    void cacheHit_corruptStockValue_fallsBackToDbLoader() {
-        when(valueOps.get(DETAIL_KEY)).thenReturn(staticVo());
-        when(stringValueOps.get(STOCK_KEY)).thenReturn("not-a-number");
-        Function<Long, ProductDetailVO> loader = loaderReturning(fullVo(44));
-
-        ProductDetailVO vo = service.getOrLoadDetail(ID, loader);
-
-        assertEquals(44, vo.getStock(), "脏数据忽略，回查 DB");
-        verify(stringValueOps).set(eq(STOCK_KEY), eq("44"), any(Duration.class));
+        // 缓存层不回填 stock 计数器（库存计数器不由缓存层重建）
+        verify(stockRedisService, never()).initStock(anyLong(), anyLong());
     }
 
     // ---------------------- miss + 防击穿抢锁 ----------------------
 
     @Test
-    void miss_lockAcquired_loadsDbAndCachesBothKeys() throws InterruptedException {
-        when(valueOps.get(DETAIL_KEY)).thenReturn(null);                 // 入口 + 二次校验都 miss
+    void miss_lockAcquired_loadsDbAndCachesDetailOnly() throws InterruptedException {
+        when(valueOps.get(DETAIL_KEY)).thenReturn(null);
         when(lock.tryLock(anyLong(), anyLong(), any())).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
-        when(stringValueOps.get(STOCK_KEY)).thenReturn("100");
+        when(stockRedisService.getAvailable(ID)).thenReturn(100L);
         Function<Long, ProductDetailVO> loader = loaderReturning(fullVo(100));
 
         ProductDetailVO vo = service.getOrLoadDetail(ID, loader);
 
         assertEquals(100, vo.getStock());
+        // 只缓存详情 key；stock 计数器不由缓存层写
         verify(valueOps).set(eq(DETAIL_KEY), any(ProductDetailVO.class), any(Duration.class));
-        verify(stringValueOps).set(eq(STOCK_KEY), eq("100"), any(Duration.class));
+        verify(stockRedisService, never()).initStock(anyLong(), anyLong());
         verify(lock).unlock();
         assertEquals(1.0, counter("product.detail.cache.miss"));
     }
@@ -177,7 +162,6 @@ class ProductCacheServiceTest {
                 () -> service.getOrLoadDetail(ID, loaderReturning(null)));
         assertEquals(ErrorCode.PRODUCT_NOT_FOUND, ex.getErrorCode());
 
-        // 空值标记 TTL = 120s
         ArgumentCaptor<Duration> ttlCap = ArgumentCaptor.forClass(Duration.class);
         verify(valueOps).set(eq(DETAIL_KEY), eq(ProductCacheService.NULL_MARKER), ttlCap.capture());
         assertEquals(120, ttlCap.getValue().getSeconds());
@@ -186,17 +170,16 @@ class ProductCacheServiceTest {
 
     @Test
     void miss_lockAcquired_recheckHit_skipsDbLoad() throws InterruptedException {
-        // 入口 miss，等锁期间别的线程已回填 → 二次校验命中
         when(valueOps.get(DETAIL_KEY)).thenReturn(null).thenReturn(staticVo());
         when(lock.tryLock(anyLong(), anyLong(), any())).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
-        when(stringValueOps.get(STOCK_KEY)).thenReturn("66");
+        when(stockRedisService.getAvailable(ID)).thenReturn(66L);
         Function<Long, ProductDetailVO> loader = loaderReturning(fullVo(999));
 
         ProductDetailVO vo = service.getOrLoadDetail(ID, loader);
 
         assertEquals(66, vo.getStock());
-        verify(loader, never()).apply(any());      // 二次校验命中，不查 DB
+        verify(loader, never()).apply(any());
         verify(lock).unlock();
     }
 
@@ -204,11 +187,10 @@ class ProductCacheServiceTest {
 
     @Test
     void miss_lockNotAcquired_retrySucceeds() throws InterruptedException {
-        // 入口 miss → 抢锁失败 → 重试第 1 次仍 miss → 第 2 次命中
         when(valueOps.get(DETAIL_KEY))
                 .thenReturn(null).thenReturn(null).thenReturn(staticVo());
         when(lock.tryLock(anyLong(), anyLong(), any())).thenReturn(false);
-        when(stringValueOps.get(STOCK_KEY)).thenReturn("12");
+        when(stockRedisService.getAvailable(ID)).thenReturn(12L);
 
         ProductDetailVO vo = service.getOrLoadDetail(ID, loaderReturning(fullVo(999)));
 
@@ -218,7 +200,7 @@ class ProductCacheServiceTest {
 
     @Test
     void miss_lockNotAcquired_retryExhausted_fallsBackToDb() throws InterruptedException {
-        when(valueOps.get(DETAIL_KEY)).thenReturn(null);                 // 入口 + 3 次重试都 miss
+        when(valueOps.get(DETAIL_KEY)).thenReturn(null);
         when(lock.tryLock(anyLong(), anyLong(), any())).thenReturn(false);
         Function<Long, ProductDetailVO> loader = loaderReturning(fullVo(88));
 
@@ -227,7 +209,6 @@ class ProductCacheServiceTest {
         assertEquals(88, vo.getStock(), "重试耗尽，降级直查 DB");
         verify(loader).apply(ID);
         assertEquals(1.0, counter("product.detail.cache.db_fallback"));
-        // 降级路径不回填缓存
         verify(valueOps, never()).set(eq(DETAIL_KEY), any(), any(Duration.class));
     }
 
@@ -241,15 +222,14 @@ class ProductCacheServiceTest {
         assertEquals(ErrorCode.PRODUCT_NOT_FOUND, ex.getErrorCode());
     }
 
-    // ---------------------- 延迟双删 ----------------------
+    // ---------------------- 延迟双删（只删详情 key） ----------------------
 
     @Test
-    void invalidate_deletesBothKeysSyncAndSchedulesSecondDelete() {
+    void invalidate_deletesDetailKeyOnly_syncAndScheduledSecondDelete() {
         service.invalidate(ID);
 
-        // 同步删一次
+        // 同步删详情 key 一次
         verify(redisTemplate).delete(DETAIL_KEY);
-        verify(stringRedisTemplate).delete(STOCK_KEY);
         assertEquals(1.0, counter("product.detail.cache.invalidate"));
 
         // 调度第二删
@@ -259,9 +239,11 @@ class ProductCacheServiceTest {
         assertTrue(whenCap.getValue().isAfter(Instant.now().plusMillis(200)),
                 "第二删延迟应在 ~500ms 后");
 
-        // 执行调度任务 → 再删一次（累计 2 次）
+        // 执行调度任务 → 详情 key 再删一次（累计 2 次）
         taskCap.getValue().run();
         verify(redisTemplate, times(2)).delete(DETAIL_KEY);
-        verify(stringRedisTemplate, times(2)).delete(STOCK_KEY);
+
+        // stock key 是常驻计数器，invalidate 不应触碰
+        verify(stockRedisService, never()).initStock(anyLong(), anyLong());
     }
 }

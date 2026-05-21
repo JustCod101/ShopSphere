@@ -20,12 +20,13 @@ MySQL,单机 HikariCP 连接池(`maximum-pool-size: 10`)在热点商品下会被
 | key | 内容 | 序列化 | 写入方 |
 |---|---|---|---|
 | `product:detail:{id}` | 详情静态字段(name/price/description/mainImage/category/status/createdAt),**不含 stock** | `GenericJackson2JsonRedisSerializer`(嵌 `@class`) | 详情 miss 路径 |
-| `stock:product:{id}` | 可售量(纯数字字符串) | `StringRedisSerializer` | T2.2 详情 miss 顺手写 baseline;T2.3 Lua 接管 |
+| `stock:product:{id}` | 可售量(纯数字字符串) | `StringRedisSerializer` | **T2.3 起由 `StockRedisService` 独占**(常驻无 TTL,启动预热 + Lua 维护,详见 `docs/stock-redis.md`) |
 | `lock:product:detail:{id}` | 防击穿互斥锁 | Redisson 内部 | Redisson |
 
 **为什么 stock 不进详情缓存**:库存变动频率远高于商品静态信息。若同存一个 key,每次扣减都要
-重建整条详情缓存,或导致缓存与真实库存漂移。拆开后:详情缓存可长 TTL,库存独立 key 由 T2.3
-Lua 原子维护。详情命中后再实时读一次 `stock:product:{id}` 拼装返回。
+重建整条详情缓存,或导致缓存与真实库存漂移。拆开后:详情缓存可长 TTL;库存 `stock:product:{id}`
+是 **T2.3 起的常驻计数器**(无 TTL,`StockRedisService` 维护)。详情命中后调
+`StockRedisService.getAvailable` 拼装返回;计数器缺失则只读兜底 DB sellable,不回填。
 
 ### 2.2 设计参数
 
@@ -64,8 +65,11 @@ GET /api/product/{id}
 
 ### 2.4 写失效(延迟双删)
 
-`ProductCacheService.invalidate(id)`:同步 `del` 详情 + 库存两 key → 经 `TaskScheduler`
-延迟 500ms 异步再 `del` 一次。第二删消除"第一删后、DB 提交前,有并发读把旧值回填缓存"的窗口。
+`ProductCacheService.invalidate(id)`:同步 `del` 详情 key → 经 `TaskScheduler` 延迟 500ms
+异步再 `del` 一次。第二删消除"第一删后、DB 提交前,有并发读把旧值回填缓存"的窗口。
+
+> **T2.3 起只删 `product:detail:{id}`**:`stock:product:{id}` 是常驻库存计数器,商品静态
+> 信息变更不应清空库存,故 `invalidate` 不再触碰 stock key。
 
 > **本期边界**:T2.2 暂无业务写路径(`InternalAdminController` 仍 501),`invalidate` 仅由
 > 单元测试覆盖,等 T2.x 后台 update/delete 落地时接入。T2.1 文档里"手工 `UPDATE t_product
@@ -156,7 +160,7 @@ DB 查询量级。
 
 ## 七、后续演进
 
-- **T2.3**:`stock:product:{id}` 由 Lua 脚本原子 `DECR` 维护(预扣);本期 `SET` baseline 写入
-  与 Lua 维护语义对齐(Lua 先判 `EXISTS` 再决定初始化或 `DECR`)。
+- **T2.3 已落地**:`stock:product:{id}` 升级为常驻计数器,由 `StockRedisService` Lua 原子维护
+  (启动预热 + 不自动初始化 + 对账)。`ProductCacheService` 已重构为委托读取,详见 `docs/stock-redis.md`。
 - **T2.x 后台写**:`update/delete` 落地时调 `ProductCacheService.invalidate(id)` 接入双删。
 - **Phase 5**:Prometheus + Grafana 缓存看板;评估二级本地缓存(Caffeine)挡极热点 key。
