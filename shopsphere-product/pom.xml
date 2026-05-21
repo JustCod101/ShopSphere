@@ -26,10 +26,29 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- Redis：本期未启用业务逻辑，T2.2 Cache-Aside 接入 -->
+        <!-- Redis：T2.2 商品详情 Cache-Aside（Lettuce 连接） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- Redisson：T2.2 防击穿分布式锁；T2.3/T2.4 信号量/限流器复用 -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+            <version>3.27.2</version>
+            <exclusions>
+                <!-- 排除 redisson 默认桥接（适配 Boot 3.1），改用与 Boot 3.2 对齐的 32 桥接 -->
+                <exclusion>
+                    <groupId>org.redisson</groupId>
+                    <artifactId>redisson-spring-data-31</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-data-32</artifactId>
+            <version>3.27.2</version>
         </dependency>
 
         <!-- Spring Cloud Alibaba：Nacos 发现 / 配置 -->

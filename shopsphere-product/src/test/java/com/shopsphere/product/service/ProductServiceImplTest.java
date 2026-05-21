@@ -20,34 +20,52 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * ProductServiceImpl 单测（纯 Mockito，不起 Spring）。覆盖：
- * <ol>
- *   <li>getDetail：正常 / 商品缺失 → 3001 / 库存行缺失 → 0 / locked&gt;stock 兜底 0</li>
- *   <li>list：page/size 默认值 / 上限截断 / 下限截断 / wrapper 非空</li>
- * </ol>
+ * ProductServiceImpl 单测（纯 Mockito，不起 Spring）。
+ *
+ * <p>T2.2 后 {@code getDetail} 委托 {@link ProductCacheService}；本测用 stub 让
+ * {@code getOrLoadDetail} 忠实回放缓存契约（调 dbLoader → null 转 3001），从而间接验证
+ * 私有方法 {@code loadDetailFromDb} / {@code computeSellable} 的 DB 加载逻辑。
+ * 真正的缓存分支（防穿透/击穿/雪崩/双删）由 {@code ProductCacheServiceTest} 覆盖。
  */
 class ProductServiceImplTest {
 
     private ProductMapper productMapper;
     private ProductStockMapper stockMapper;
+    private ProductCacheService cacheService;
     private ProductServiceImpl service;
 
     @BeforeEach
     void setUp() {
         productMapper = mock(ProductMapper.class);
         stockMapper = mock(ProductStockMapper.class);
-        service = new ProductServiceImpl(productMapper, stockMapper);
+        cacheService = mock(ProductCacheService.class);
+        service = new ProductServiceImpl(productMapper, stockMapper, cacheService);
+    }
+
+    /** stub：getOrLoadDetail 回放缓存契约 —— 调 dbLoader，null → PRODUCT_NOT_FOUND。 */
+    @SuppressWarnings("unchecked")
+    private void stubCachePassthrough() {
+        when(cacheService.getOrLoadDetail(anyLong(), any())).thenAnswer(inv -> {
+            Long id = inv.getArgument(0);
+            Function<Long, ProductDetailVO> loader = inv.getArgument(1);
+            ProductDetailVO vo = loader.apply(id);
+            if (vo == null) {
+                throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+            }
+            return vo;
+        });
     }
 
     private static ProductEntity buildEntity() {
@@ -63,10 +81,11 @@ class ProductServiceImplTest {
                 .build();
     }
 
-    // ---------------------- getDetail ----------------------
+    // ---------------------- getDetail（经缓存层委托，验证 DB 加载逻辑） ----------------------
 
     @Test
     void getDetail_returnsDetailWithSellableStock() {
+        stubCachePassthrough();
         ProductEntity p = buildEntity();
         when(productMapper.selectById(2001L)).thenReturn(p);
         when(stockMapper.selectById(2001L))
@@ -84,19 +103,20 @@ class ProductServiceImplTest {
 
     @Test
     void getDetail_throwsWhenProductMissing() {
+        stubCachePassthrough();
         when(productMapper.selectById(9999L)).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> service.getDetail(9999L));
         assertEquals(ErrorCode.PRODUCT_NOT_FOUND, ex.getErrorCode());
         assertEquals(3001, ex.getErrorCode().getCode());
-        // stock 表不应被查询（前置短路）
+        // 商品不存在时 loadDetailFromDb 前置短路，不查 stock 表
         verify(stockMapper, org.mockito.Mockito.never()).selectById(any());
     }
 
     @Test
     void getDetail_returnsZeroWhenStockRowMissing() {
-        ProductEntity p = buildEntity();
-        when(productMapper.selectById(2001L)).thenReturn(p);
+        stubCachePassthrough();
+        when(productMapper.selectById(2001L)).thenReturn(buildEntity());
         when(stockMapper.selectById(2001L)).thenReturn(null);
 
         ProductDetailVO vo = service.getDetail(2001L);
@@ -106,8 +126,8 @@ class ProductServiceImplTest {
 
     @Test
     void getDetail_clampsNegativeSellableToZero() {
-        ProductEntity p = buildEntity();
-        when(productMapper.selectById(2001L)).thenReturn(p);
+        stubCachePassthrough();
+        when(productMapper.selectById(2001L)).thenReturn(buildEntity());
         when(stockMapper.selectById(2001L))
                 .thenReturn(ProductStockEntity.builder()
                         .productId(2001L).stock(5).lockedStock(10).version(0).build());
@@ -115,6 +135,21 @@ class ProductServiceImplTest {
         ProductDetailVO vo = service.getDetail(2001L);
         assertEquals(0, vo.getStock(),
                 "locked > stock 属数据异常，sellable 应兜底为 0，不得返回负数");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void getDetail_delegatesToCacheService() {
+        // 验证确实经过缓存层（而非直连 DB）
+        ProductDetailVO cached = ProductDetailVO.builder().id(2001L).stock(7).build();
+        when(cacheService.getOrLoadDetail(anyLong(), any())).thenReturn(cached);
+
+        ProductDetailVO vo = service.getDetail(2001L);
+
+        assertEquals(7, vo.getStock());
+        verify(cacheService).getOrLoadDetail(org.mockito.ArgumentMatchers.eq(2001L), any());
+        // 委托缓存层时不应直接碰 mapper
+        verify(productMapper, org.mockito.Mockito.never()).selectById(any());
     }
 
     // ---------------------- list ----------------------
@@ -135,7 +170,6 @@ class ProductServiceImplTest {
     void list_appliesDefaultsWhenNullPageSize() {
         mockPageReturn();
         ProductListQuery q = new ProductListQuery();
-        // page / size 默认 null
 
         PageResult<ProductVO> res = service.list(q);
 
@@ -219,7 +253,6 @@ class ProductServiceImplTest {
     @Test
     @SuppressWarnings("unchecked")
     void list_emptyKeyword_isIgnored() {
-        // 空 keyword 进入但不应抛错（StringUtils.hasText 短路）
         mockPageReturn();
         ProductListQuery q = new ProductListQuery();
         q.setKeyword("   ");

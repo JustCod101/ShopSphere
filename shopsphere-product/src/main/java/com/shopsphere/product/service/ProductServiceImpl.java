@@ -3,8 +3,6 @@ package com.shopsphere.product.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.shopsphere.common.exception.BusinessException;
-import com.shopsphere.common.result.ErrorCode;
 import com.shopsphere.common.result.PageResult;
 import com.shopsphere.product.dto.ProductDetailVO;
 import com.shopsphere.product.dto.ProductListQuery;
@@ -29,29 +27,39 @@ public class ProductServiceImpl implements ProductService {
 
     private final ProductMapper productMapper;
     private final ProductStockMapper stockMapper;
+    private final ProductCacheService cacheService;
 
     @Override
     public ProductDetailVO getDetail(Long id) {
+        // T2.2：详情走 Cache-Aside；缓存 miss 时由 cacheService 回调 loadDetailFromDb
+        return cacheService.getOrLoadDetail(id, this::loadDetailFromDb);
+    }
+
+    /**
+     * DB 加载详情。返回 {@code null} 表示商品不存在 —— 由 {@link ProductCacheService}
+     * 转为空值标记缓存 + 抛 {@code PRODUCT_NOT_FOUND}（防穿透）。
+     */
+    private ProductDetailVO loadDetailFromDb(Long id) {
         ProductEntity p = productMapper.selectById(id);
         if (p == null) {
-            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+            return null;
         }
         ProductStockEntity s = stockMapper.selectById(id);
-        int sellable;
+        return ProductDetailVO.from(p, computeSellable(id, s));
+    }
+
+    /** 可售量 = stock - locked_stock；负值属数据异常，告警并 0 兜底。 */
+    private int computeSellable(Long id, ProductStockEntity s) {
         if (s == null) {
-            sellable = 0;
-        } else {
-            int diff = s.getStock() - s.getLockedStock();
-            if (diff < 0) {
-                // locked > stock 属数据异常；不抑制告警，仅 0 兜底避免负库存外泄
-                log.warn("negative sellable stock for productId={}, stock={}, locked={}",
-                        id, s.getStock(), s.getLockedStock());
-                sellable = 0;
-            } else {
-                sellable = diff;
-            }
+            return 0;
         }
-        return ProductDetailVO.from(p, sellable);
+        int diff = s.getStock() - s.getLockedStock();
+        if (diff < 0) {
+            log.warn("negative sellable stock for productId={}, stock={}, locked={}",
+                    id, s.getStock(), s.getLockedStock());
+            return 0;
+        }
+        return diff;
     }
 
     @Override
