@@ -133,7 +133,7 @@ security:
 | Feign 接口 | 模块 | 提供方 | 用途 |
 |---|---|---|---|
 | `UserFeignClient` | `user-api` | User | `GET /internal/user/{id}` 查用户 |
-| `ProductFeignClient` | `product-api` | Product | 库存 TCC：`/internal/product/stock/try`、`/confirm`、`/cancel`（见 §4.3） |
+| `ProductFeignClient` | `product-api` | Product | `GET /internal/product/{id}` 查详情 + 库存 TCC `/internal/product/stock/{try,confirm,cancel}`（见 §4.3）。**T2.4 已落地契约 + 骨架,完整 Seata TCC T3.3** |
 | `OrderFeignClient` | `order-api` | Order | （预留，按需）|
 
 - **C2 已拍板 · 推荐服务无 Java Feign 客户端**：推荐接口由**前端经 Gateway 直连 Python**（`/api/recommend/**`，带用户 JWT，Gateway 校验）。原 architecture.md T4.4「Java 经 Feign 调推荐」**取消**（无明确业务调用方，徒增鉴权矛盾）。若未来 Java 侧确需聚合推荐，再走 `/internal/recommend/**` + Nacos 直连，并在 `recommendation-api` 补 `RecommendationFeignClient`（fallback 返回热门兜底，fallback 在 Java 调用方侧实现，Python 无 Sentinel）。
@@ -204,9 +204,10 @@ Gateway 路由、`docker-compose`、Nacos 注册统一以此为准：
 | GET | `/api/product/{id}` | P | T2.1 已落地（基础查询）；T2.2 接入 Cache-Aside（防穿透空值缓存 / 防雪崩 TTL 随机）。`data.stock = stock - locked_stock`（可售量，§4.3） |
 | GET | `/api/product/list?categoryId=&keyword=&page=&size=` | P | T2.1 已落地。`PageResult`；`size` 上限 100 超出截断；`keyword` 走 name LIKE 模糊匹配 |
 | GET | `/api/product/category/tree` | P | T2.1 已落地（实际挂在 `/api/product/category/tree`，复用现有 `/api/product/**` 路由 + 白名单，零 Gateway 改动） |
-| POST | `/internal/product/stock/try` | 内部 | 库存 TCC-Try：预留(locked)，幂等（§4.3）。**T2.1 仅占位骨架返回 1500，T2.4 落地** |
-| POST | `/internal/product/stock/confirm` | 内部 | 库存 TCC-Confirm：真实出库（支付成功），幂等。**T2.1 占位 1500，T2.4 落地** |
-| POST | `/internal/product/stock/cancel` | 内部 | 库存 TCC-Cancel：释放并回补 Redis，幂等。**T2.1 占位 1500，T2.4 落地** |
+| GET | `/internal/product/{id}` | 内部 | Feign `ProductFeignClient.getDetail`，返回 `ProductDetailDTO`；与公开 `/api/product/{id}` 数据同源。**T2.4 落地** |
+| POST | `/internal/product/stock/try` | 内部 | 库存 TCC-Try：预留(locked)，幂等（§4.3）。**T2.4 落地接口骨架（幂等表 + Redis 预扣），完整 Seata TCC T3.3** |
+| POST | `/internal/product/stock/confirm` | 内部 | 库存 TCC-Confirm：真实出库（支付成功），幂等。**T2.4 骨架，完整 TCC T3.3** |
+| POST | `/internal/product/stock/cancel` | 内部 | 库存 TCC-Cancel：释放并回补 Redis，幂等。**T2.4 骨架，完整 TCC T3.3** |
 
 ### 6.3 Order `/api/order`
 

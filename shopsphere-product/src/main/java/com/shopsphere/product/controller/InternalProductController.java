@@ -1,46 +1,60 @@
 package com.shopsphere.product.controller;
 
 import com.shopsphere.api.product.ProductFeignClient;
-import com.shopsphere.api.product.dto.StockTccCmd;
-import com.shopsphere.api.product.dto.StockTccConfirmCmd;
+import com.shopsphere.api.product.dto.ProductDetailDTO;
+import com.shopsphere.api.product.dto.StockTccActionDTO;
+import com.shopsphere.api.product.dto.StockTccDTO;
 import com.shopsphere.common.context.PublicApi;
-import com.shopsphere.common.exception.BusinessException;
-import com.shopsphere.common.result.ErrorCode;
 import com.shopsphere.common.result.Result;
+import com.shopsphere.product.service.ProductService;
+import com.shopsphere.product.service.StockTccService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 内部库存 TCC 端点骨架（契约 §4.3 / §6.2）。
+ * 内部 Feign 端点（契约 §4.2 / §4.3）。直接 {@code implements ProductFeignClient} ——
+ * 路径/方法/出入参与 Feign 契约编译期对齐,契约漂移即编译失败。
  *
- * <p><b>T2.1 本期不实现</b>：三段方法体 throw 1500 + "not implemented (T2.4)"，明确未实现态。
- * 真实业务（Redis Lua 预扣 + DB 条件更新 + t_stock_tcc_log 幂等/空回滚/防悬挂）放 T2.4。
+ * <p><b>路径前缀须类级显式声明</b>:{@code @FeignClient(path="/internal/product")} 仅客户端消费;
+ * 服务端 MVC 由类级 {@link RequestMapping} + 接口方法级 {@code @GetMapping/@PostMapping} 组合出
+ * {@code /internal/product/**}。与公开 {@code ProductController}({@code /api/product})无冲突。
  *
- * <p><b>路径前缀</b>：实现 {@code ProductFeignClient} 的 {@code path="/internal/product/stock"}，
- * 类级 {@link RequestMapping} 须显式声明（{@code @FeignClient.path} 仅客户端消费，服务端 MVC 不识别）。
+ * <p><b>鉴权</b>:{@link PublicApi} 跳过 UserContext 鉴权兜底 —— 服务间 Feign 走 Nacos 直连可能
+ * 不带 {@code X-User-Id};{@code /internal/**} 不被 Gateway 路由(§4.1,T1.1 已落地)。
  *
- * <p><b>鉴权策略</b>：同 user 的 InternalUserController — Gateway 显式拒绝外部 /internal/**，
- * Feign 服务间走 Nacos 直连可能不带 X-User-Id，故 {@link PublicApi} 跳过 UserContext 鉴权兜底。
+ * <p><b>T2.4 骨架</b>:库存 TCC 三接口委托 {@link StockTccService}(幂等表写入 + 直调 Redis);
+ * 完整 Seata TCC 语义见 {@code StockTccServiceImpl} 的 T3.3 TODO。
  */
 @RestController
-@RequestMapping("/internal/product/stock")
+@RequestMapping("/internal/product")
 @PublicApi
 @RequiredArgsConstructor
 public class InternalProductController implements ProductFeignClient {
 
+    private final ProductService productService;
+    private final StockTccService stockTccService;
+
     @Override
-    public Result<Void> tryStock(StockTccCmd cmd) {
-        throw new BusinessException(ErrorCode.SERVER_ERROR, "stock/try not implemented (T2.4)");
+    public Result<ProductDetailDTO> getDetail(Long id) {
+        return Result.ok(productService.getDetailForInternal(id));
     }
 
     @Override
-    public Result<Void> confirmStock(StockTccConfirmCmd cmd) {
-        throw new BusinessException(ErrorCode.SERVER_ERROR, "stock/confirm not implemented (T2.4)");
+    public Result<Void> stockTry(StockTccDTO dto) {
+        stockTccService.tryStock(dto);
+        return Result.ok();
     }
 
     @Override
-    public Result<Void> cancelStock(StockTccConfirmCmd cmd) {
-        throw new BusinessException(ErrorCode.SERVER_ERROR, "stock/cancel not implemented (T2.4)");
+    public Result<Void> stockConfirm(StockTccActionDTO dto) {
+        stockTccService.confirmStock(dto);
+        return Result.ok();
+    }
+
+    @Override
+    public Result<Void> stockCancel(StockTccActionDTO dto) {
+        stockTccService.cancelStock(dto);
+        return Result.ok();
     }
 }

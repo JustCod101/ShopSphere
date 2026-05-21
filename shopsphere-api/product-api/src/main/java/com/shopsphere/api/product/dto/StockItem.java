@@ -7,12 +7,12 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 
 /**
- * 单商品库存数量项（api-contracts §4.3）。
+ * 单商品库存数量项（api-contracts §4.3）。{@link StockTccDTO} 的元素。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class StockItemDTO implements Serializable {
+public class StockItem implements Serializable {
 
     private static final long serialVersionUID = 1L;
 

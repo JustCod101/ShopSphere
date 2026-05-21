@@ -3,6 +3,7 @@ package com.shopsphere.product.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.shopsphere.api.product.dto.ProductDetailDTO;
 import com.shopsphere.common.result.PageResult;
 import com.shopsphere.product.dto.ProductDetailVO;
 import com.shopsphere.product.dto.ProductListQuery;
@@ -60,6 +61,23 @@ public class ProductServiceImpl implements ProductService {
             return 0;
         }
         return diff;
+    }
+
+    @Override
+    public ProductDetailDTO getDetailForInternal(Long id) {
+        // 复用 T2.2 缓存路径；VO → 跨服务 DTO（CLAUDE.md：VO=返回前端 / DTO=传输）
+        ProductDetailVO vo = getDetail(id);
+        return ProductDetailDTO.builder()
+                .id(vo.getId())
+                .name(vo.getName())
+                .categoryId(vo.getCategoryId())
+                .price(vo.getPrice())
+                .mainImage(vo.getMainImage())
+                .description(vo.getDescription())
+                .stock(vo.getStock())
+                .status(vo.getStatus())
+                .createdAt(vo.getCreatedAt())
+                .build();
     }
 
     @Override
