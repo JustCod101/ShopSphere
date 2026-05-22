@@ -35,6 +35,11 @@ public class Result<T> implements Serializable {
     /** UTC OffsetDateTime，ISO-8601 带偏移（M3：禁止 Date/LocalDateTime） */
     private OffsetDateTime timestamp;
 
+    /** 是否成功（code == 0）。跨服务 Feign 调用方据此判定下游结果。 */
+    public boolean isSuccess() {
+        return code == ErrorCode.SUCCESS.getCode();
+    }
+
     public static <T> Result<T> ok() {
         return ok(null);
     }

@@ -54,3 +54,12 @@ spring:
       mandatory: true                     # 与 publisher-returns 配套；无队列绑定即 ReturnCallback
       retry:
         enabled: false                    # 轻量场景禁用模板内置重试
+    # T3.4 订单事件消费者（q.points / q.notify）。手动 ack：消费者内显式 ack/nack 决策，
+    # 不依赖容器自动重试（避免约束所禁的「retry 失控」）。
+    listener:
+      simple:
+        acknowledge-mode: manual          # PointsConsumer / NotificationConsumer 手动 ack
+        prefetch: 20                      # 每消费者未 ack 消息上限
+        default-requeue-rejected: false   # 兜底：未显式处理的拒绝不无限 requeue
+        retry:
+          enabled: false                  # 重试由消费者内 Redis 计数显式控制

@@ -11,8 +11,10 @@ import com.shopsphere.user.dto.LoginDTO;
 import com.shopsphere.user.dto.LoginVO;
 import com.shopsphere.user.dto.RegisterDTO;
 import com.shopsphere.user.dto.UserVO;
+import com.shopsphere.user.mapper.PointsLogMapper;
 import com.shopsphere.user.mapper.UserMapper;
 import com.shopsphere.user.mapper.UserBehaviorMapper;
+import com.shopsphere.user.mapper.UserPointsMapper;
 import com.shopsphere.user.mapper.UserProfileMapper;
 import com.shopsphere.user.service.BehaviorService;
 import com.shopsphere.user.service.UserService;
@@ -87,6 +89,10 @@ class UserControllerTest {
     private UserProfileMapper userProfileMapper;
     @MockBean
     private UserBehaviorMapper userBehaviorMapper;
+    @MockBean
+    private UserPointsMapper userPointsMapper;
+    @MockBean
+    private PointsLogMapper pointsLogMapper;
 
     // ---------------------- 注册：参数校验 ----------------------
 

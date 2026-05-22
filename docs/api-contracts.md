@@ -163,6 +163,13 @@ POST /internal/product/stock/confirm   { "xid": "...", "orderId": 123 }
 POST /internal/product/stock/cancel    { "xid": "...", "orderId": 123 }
 ```
 
+> ✅ **T3.3 已落地**：库存 TCC 三段以**业务 TCC**实现（显式幂等端点，非 Seata
+> `@TwoPhaseBusinessAction` —— Confirm 须延迟到 `/pay`，Seata 二阶段回调无法跨请求）。
+> `t_product_stock` 条件更新（Try `stock-=q,locked+=q` / Confirm `locked-=q` /
+> Cancel `stock+=q,locked-=q`）与 `t_stock_tcc_log` 同一本地事务；幂等、空回滚（订单级标记
+> `productId=0`）、防悬挂、Cancel 显式回补 Redis 均落地。`stock` 列语义明确为**可售库存池**
+> （Redis 镜像之，真实总量 = `stock + locked_stock`）。失败演练见 `docs/tcc-rollback-report.md`。
+
 ---
 
 ## 五、服务注册名 & 端口分配 ✅**已拍板**
@@ -215,9 +222,9 @@ Gateway 路由、`docker-compose`、Nacos 注册统一以此为准：
 |---|---|---|---|
 | POST | `/api/order/create` | A | `@GlobalTransactional` 发起方（TCC-Try 预留）；成功后发 `order.created`。**幂等：必填 header `X-Request-Id`** |
 | POST | `/api/order/{id}/pay` | A | 支付成功回调/确认 → 触发库存 Confirm，状态 `CREATED→PAID` |
-| GET | `/api/order/{id}` | A | 仅本人可见（用 `X-User-Id` 校验归属）|
-| GET | `/api/order/list?page=&size=` | A | 当前用户订单 |
-| POST | `/api/order/{id}/cancel` | A | 取消并释放库存（调 `/internal/product/stock/cancel`），幂等 |
+| GET | `/api/order/{id}` | A | 仅本人可见（用 `X-User-Id` 校验归属；不存在/非本人均 `4001`）|
+| GET | `/api/order/list?status=&page=&size=` | A | 当前用户订单（强制 `user_id` 过滤）；`Result<PageResult<OrderVO>>` |
+| POST | `/api/order/{id}/cancel` | A | 取消并回补库存（调 `/internal/product/stock/cancel`），幂等 |
 
 **M2 已拍板 · `/api/order/create` 出入参固化**（`userId` 取自 `X-User-Id`，不在 body）：
 
@@ -236,6 +243,34 @@ Resp:   data: { "orderId": 123, "status": "CREATED", "totalAmount": 199.00,
 - **`SHIPPED` 之后不可取消**（仅 `CREATED`、`PAID` 可转 `CANCELLED`）；`PAID` 取消需先 Confirm 已扣，取消按"逆向补偿"调 `stock/cancel` 回补。
 - 非法状态流转 → `4002` 订单状态非法。
 - 取消/超时的库存释放幂等键 = `(orderId, productId)`（§4.3），与下单 Try/Confirm 同键，天然防重。
+
+> ✅ **T3.1 已落地（地基）**：Order 库事务相关表经 Flyway 建好 —— `t_order` / `t_order_item` /
+> `t_order_request`（S5 幂等，`uk_user_req`）/ `t_local_message`（C3 本地消息表，`status`
+> 0=PENDING/1=SENT/2=CONFIRMED/3=FAILED）/ `undo_log`（Seata AT）。表结构见 `docs/architecture.md §2.3`。
+> Order/Product/User 三服务接入 Seata 客户端（`tx-service-group=shopsphere-tx-group`），
+> XID 透传验证清单见 `docs/seata-verify.md`。下单/支付/取消业务逻辑见 T3.2，库存 TCC 完整语义见 T3.3。
+
+> ✅ **T3.2 已落地**：`POST /api/order/create` 实现 —— `@GlobalTransactional` 发起，Feign 校验商品 +
+> 库存 TCC-Try，本地建单并按 C3 写 `t_local_message`（`order.created` + `order.payment.timeout` 均
+> PENDING）。S5 幂等（`X-Request-Id` + `t_order_request`，TTL 24h 定时清理）。
+> 库存 TCC-Confirm/Cancel、`t_local_message` 的 outbox 中继投递见 T3.3 及后续。
+
+> ✅ **T3.3 已落地**：`POST /api/order/{id}/pay` 实现 —— `@GlobalTransactional` 校验
+> （订单存在 / 归属 / 状态 `CREATED`）→ 本地 `CREATED→PAID`（条件更新防并发）→ Feign
+> `stockConfirm` 触发库存 TCC-Confirm。库存 TCC 三段完整语义（幂等 / 空回滚 / 防悬挂 /
+> Redis 回补）见 §4.3 注与 `docs/tcc-rollback-report.md`。`/create` 已重排（stockTry 置于本地
+> 落库之后），闭合 T3.2 库存泄漏缺口。
+
+> ✅ **T3.5 已落地**：补全订单查询 / 取消 / 状态机 / 超时延迟消费 ——
+> `GET /api/order/{id}`（含明细，归属校验不暴露存在性）、`GET /api/order/list`（强制 `user_id`
+> 过滤 + 分页 `PageResult`）、`POST /api/order/{id}/cancel`（`@GlobalTransactional`：状态机校验 →
+> 条件 UPDATE 取消 → Feign `stockCancel` 回补；Redis `cancel:lock:{orderId}` 防并发）。
+> 状态机统一由 `OrderStatusTransitionValidator` 管理（合法迁移：`CREATED→PAID/CANCELLED`、
+> `PAID→SHIPPED/CANCELLED`、`SHIPPED→COMPLETED`），`pay`/`cancel` 均经其校验。
+> **PAID 取消逆向补偿已落地**：Product `cancelStock` 对已 Confirm 的商品按 `stock+=q` 退回可售池。
+> 未支付超时：`order.payment.timeout` 经 `q.order.timeout.wait`（TTL+DLX）延迟 30min 死信进
+> `q.order.timeout`，`OrderTimeoutConsumer` 触发系统取消（仅取消仍 `CREATED` 的订单）。
+> 拓扑见 `docs/mq-topology.md`。
 
 ### 6.4 Recommendation `/api/recommend`（FastAPI，返回同构 `Result`）
 
@@ -303,6 +338,16 @@ Resp:   data: { "orderId": 123, "status": "CREATED", "totalAmount": 199.00,
   - 🔴 **强可靠（order.*）**：本地消息表 + confirm + 消费者幂等，不丢不重。
   - 🟡 **轻量（user.behavior）**：行为埋点量大且可容忍丢失，User 服务**直接发 MQ**（`mandatory` + confirm 异步回调仅记录失败，**不落本地消息表**），消费侧幂等去重。避免为海量埋点付重型一致性成本。
 - `order.payment.timeout` 用 RabbitMQ 延迟（TTL+DLX 或 `rabbitmq-delayed-message-exchange` 插件），延迟 = 支付超时窗口（默认 30min，见 §6.3 / S4）。
+
+> ✅ **T3.4 已落地**：`order.*` 强可靠链路打通 —— Order 侧 `LocalMessagePublisher`（`@Scheduled`
+> 每 5s 扫 `t_local_message`，`FOR UPDATE SKIP LOCKED` + Redisson 锁防多实例重投）+ publisher-confirm
+> 回调（ack→CONFIRMED；nack→指数退避重试，超 5 次转 FAILED 告警）；死信交换机 `shopsphere.order.dlx`
+> (fanout) → `q.order.dlq`。User 侧 `PointsConsumer`（`q.points`，幂等键 `t_points_log.order_id`，
+> 与积分累加同事务）+ `NotificationConsumer`（`q.notify`，Redis `notify:sent:{orderNo}` 幂等，本期仅日志）；
+> 消费者手动 ack，失败有界重试 3 次后转 DLX。`order.created` payload 为共享 `OrderCreatedEvent`
+> （`order-api`，较本表多 `orderNo` 字段，供通知用）。拓扑全量见 `docs/mq-topology.md`。
+> **未做**：`order.payment.timeout` 真实 30min 延迟投递与超时自动取消消费者（`q.order.timeout` 已声明）；
+> `q.order.dlq` 自动补偿。
 
 ---
 

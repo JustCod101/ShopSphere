@@ -1,6 +1,5 @@
 package com.shopsphere.user.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shopsphere.user.service.BehaviorProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -8,18 +7,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.ExchangeBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
-import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * RabbitMQ 接入（T1.4 首次引入）。仅声明生产端需要的 exchange + 通用 converter + 回调。
+ * RabbitMQ 生产端接入（T1.4 首次引入）。声明行为埋点 exchange + publisher-confirm/returns 回调。
  *
  * <p><b>不声明队列与 binding</b>：契约 §8 中 {@code q.reco.behavior} 由推荐服务自行声明并绑定到本
  * exchange，符合"消费方拥有队列"模式。User 服务不感知下游存在。
  *
  * <p><b>publisher-confirm/returns 回调</b>：M4 拍板 🟡 轻量等级 — nack/return 仅记 WARN，不补偿、不重试。
+ *
+ * <p><b>MessageConverter 见 {@link MqConverterConfig}</b>：刻意拆出独立配置，避免
+ * {@code rabbitConfig → rabbitTemplate → mqMessageConverter → rabbitConfig} 的自动装配环。
+ * Spring Boot 的 {@code RabbitTemplateConfigurer} 已把那个唯一的 {@code MessageConverter}
+ * 装到自动配置的 {@code RabbitTemplate} 上，本类无需再 {@code setMessageConverter}。
  */
 @Slf4j
 @Configuration
@@ -28,24 +30,14 @@ public class RabbitConfig {
 
     private final BehaviorProperties props;
     private final RabbitTemplate rabbitTemplate;
-    private final ObjectMapper objectMapper;
 
     @Bean
     public TopicExchange behaviorExchange() {
         return ExchangeBuilder.topicExchange(props.getExchange()).durable(true).build();
     }
 
-    /**
-     * 复用主 ObjectMapper，确保 OffsetDateTime 按 ISO-8601 UTC 序列化（与 HTTP 响应同源；契约 §1.1）。
-     */
-    @Bean
-    public MessageConverter mqMessageConverter() {
-        return new Jackson2JsonMessageConverter(objectMapper);
-    }
-
     @PostConstruct
     void wireRabbitTemplate() {
-        rabbitTemplate.setMessageConverter(mqMessageConverter());
         // confirm: 收到 broker ack 时回调；ack=false 表示 broker 拒收（exchange 不存在等）
         rabbitTemplate.setConfirmCallback((cd, ack, cause) -> {
             if (!ack) {

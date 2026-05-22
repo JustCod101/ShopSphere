@@ -1,0 +1,19 @@
+# Nacos dataId: shopsphere-order.yaml
+# namespace: dev   group: DEFAULT_GROUP
+# 跨环境共享非密配置。环境特有密配置见 shopsphere-order-${profile}.yaml（DB 密码，Jasypt 加密）。
+
+order:
+  payment:
+    # S4 未支付超时窗口（分钟）。决定 t_order.pay_expire_at 与 order.payment.timeout 延迟消息的延迟。
+    # 默认 30（api-contracts §6.3）；业务方可调。
+    timeout-minutes: 30
+  request:
+    # t_order_request 幂等记录清理 cron（S5 TTL 24h）。默认每日 04:00。
+    cleanup-cron: "0 0 4 * * *"
+  outbox:
+    # T3.4 本地消息表中继任务（LocalMessagePublisher）。
+    scan-interval-ms: 5000        # 扫描周期
+    batch-size: 100               # 单轮最多投递条数
+    max-retry: 5                  # confirm nack 重试上限，超过转 FAILED
+    lock-wait-ms: 0               # Redisson 锁获取等待（0=抢不到立即跳过本轮）
+    lock-lease-ms: 10000          # Redisson 锁租约（到期自动释放防死锁）

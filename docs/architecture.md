@@ -103,12 +103,12 @@ POST /internal/product/stock/cancel   → TCC-Cancel 释放 + 回补 Redis
 
 **职责**：下单、查单、订单状态机、分布式事务发起方
 
-**核心表**：
-- `t_order`（id, user_id, total_amount, status, created_at）
-- `t_order_item`（order_id, product_id, quantity, price）
-- `t_local_message`（本地消息表，与建单同事务，见 api-contracts §8/C3）
-- `t_order_request`（user_id, request_id, order_id）— 下单幂等（§6.3 S5）
-- `undo_log`（Seata 必需；TCC 模式下 Order 本地分支仍可用 AT，故保留）
+**核心表**（T3.1 Flyway `V20260521_1000__init_order.sql` / `V20260521_1001__add_undo_log.sql` 定稿）：
+- `t_order`（id, order_no, user_id, total_amount, status, remark, pay_expire_at, paid_at, created_at, updated_at；`uk_order_no`，`idx_user`）
+- `t_order_item`（id, order_id, product_id, product_name, price, quantity；`idx_order`）
+- `t_local_message`（id, biz_key, exchange, routing_key, payload, status, retry_count, next_retry_at, created_at, updated_at；本地消息表，与建单同事务，见 api-contracts §8/C3；`status` 0=PENDING/1=SENT/2=CONFIRMED/3=FAILED）
+- `t_order_request`（id, user_id, request_id, order_id, created_at；`uk_user_req(user_id,request_id)`）— 下单幂等（§6.3 S5）
+- `undo_log`（Seata 必需；TCC 模式下 Order 本地分支仍可用 AT，故保留。Seata 接入验证见 `docs/seata-verify.md`）
 
 **下单链路（关键流程，TCC 重设计）**：
 

@@ -68,7 +68,8 @@ class StockReconciliationTaskTest {
     void reconcile_allMatch_noErrorLogged() {
         when(stockMapper.selectList(null))
                 .thenReturn(List.of(stock(2001L, 100, 20), stock(2002L, 50, 0)));
-        when(stockRedisService.getAvailable(2001L)).thenReturn(80L);   // 100-20
+        // T3.3：stock 列即可售库存池，Redis 直接镜像 stock（与 locked_stock 无关）
+        when(stockRedisService.getAvailable(2001L)).thenReturn(100L);
         when(stockRedisService.getAvailable(2002L)).thenReturn(50L);
 
         task.reconcile();

@@ -5,8 +5,10 @@ import com.shopsphere.api.user.dto.UserDTO;
 import com.shopsphere.common.config.CommonWebAutoConfiguration;
 import com.shopsphere.common.exception.BusinessException;
 import com.shopsphere.common.result.ErrorCode;
+import com.shopsphere.user.mapper.PointsLogMapper;
 import com.shopsphere.user.mapper.UserBehaviorMapper;
 import com.shopsphere.user.mapper.UserMapper;
+import com.shopsphere.user.mapper.UserPointsMapper;
 import com.shopsphere.user.mapper.UserProfileMapper;
 import com.shopsphere.user.service.UserService;
 import org.junit.jupiter.api.Test;
@@ -59,6 +61,10 @@ class InternalUserControllerTest {
     private UserProfileMapper userProfileMapper;
     @MockBean
     private UserBehaviorMapper userBehaviorMapper;
+    @MockBean
+    private UserPointsMapper userPointsMapper;
+    @MockBean
+    private PointsLogMapper pointsLogMapper;
 
     @Test
     void getById_publicApi_withoutXUserId_isPassedThrough() throws Exception {

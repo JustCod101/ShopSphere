@@ -16,6 +16,34 @@ spring:
     date-format: yyyy-MM-dd'T'HH:mm:ss.SSSXXX
     time-zone: UTC
 
+# Seata 分布式事务客户端（TM/RM）。
+# registry/config 用 Nacos 的 public 命名空间（namespace: ""）+ SEATA_GROUP，
+# 与 seata/application.yml 的 Seata Server 一致 —— 注意区别于业务自身的 namespace=dev。
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: shopsphere-tx-group
+  service:
+    vgroup-mapping:
+      shopsphere-tx-group: default
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: ${NACOS_HOST:localhost}:8848
+      namespace: ""
+      group: SEATA_GROUP
+      cluster: default
+  config:
+    type: nacos
+    nacos:
+      server-addr: ${NACOS_HOST:localhost}:8848
+      namespace: ""
+      group: SEATA_GROUP
+  # Product 为 TCC-only 服务：关闭数据源 AT 自动代理。否则 Order 全局事务经 Feign 透传 XID 后，
+  # Product 写 t_stock_tcc_log 会被注册为 AT 分支并要求 undo_log（Product 不建此表）。库存走 TCC（T3.3）。
+  enable-auto-data-source-proxy: false
+
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true

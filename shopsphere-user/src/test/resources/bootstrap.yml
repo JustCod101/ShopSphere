@@ -1,0 +1,22 @@
+# 测试用 bootstrap：覆盖主 bootstrap.yml，禁用 Nacos / Sentinel —— @SpringBootTest
+# （PointsConsumerIT / NotificationConsumerIT）离线运行，数据源 / Redis / RabbitMQ
+# 由 Testcontainers 经 @DynamicPropertySource 注入。
+spring:
+  application:
+    name: shopsphere-user
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    sentinel:
+      enabled: false
+      eager: false
+      filter:
+        enabled: false
+  rabbitmq:
+    # PointsConsumer / NotificationConsumer 手动 ack —— 生产由 Nacos 下发，测试这里显式开启。
+    listener:
+      simple:
+        acknowledge-mode: manual

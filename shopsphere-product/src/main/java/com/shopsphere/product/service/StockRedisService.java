@@ -3,8 +3,8 @@ package com.shopsphere.product.service;
 import com.shopsphere.common.exception.BusinessException;
 import com.shopsphere.common.result.ErrorCode;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -36,7 +36,6 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class StockRedisService {
 
     public static final String STOCK_KEY_PREFIX = "stock:product:";
@@ -48,6 +47,17 @@ public class StockRedisService {
     private final StringRedisTemplate stringRedisTemplate;
     private final RedisScript<Long> stockPreDeductScript;
     private final RedisScript<Long> stockRestoreScript;
+
+    // 显式构造器：两个 RedisScript<Long> 同类型，须按 Bean 名消歧。本工程不继承
+    // spring-boot-starter-parent、未开 -parameters，Spring 6.1 已移除 LocalVariableTable
+    // 参数名发现，无法靠参数名注入 —— 故在构造器参数上显式 @Qualifier。
+    public StockRedisService(StringRedisTemplate stringRedisTemplate,
+                             @Qualifier("stockPreDeductScript") RedisScript<Long> stockPreDeductScript,
+                             @Qualifier("stockRestoreScript") RedisScript<Long> stockRestoreScript) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.stockPreDeductScript = stockPreDeductScript;
+        this.stockRestoreScript = stockRestoreScript;
+    }
 
     /** 启动 SCRIPT LOAD 预加载两段脚本,首次业务调用即可走 EVALSHA。 */
     @PostConstruct

@@ -1,0 +1,29 @@
+# 测试用 bootstrap：覆盖主 bootstrap.yml，禁用 Nacos —— @SpringBootTest（LocalMessagePublisherIT）
+# 离线运行，数据源 / Redis / RabbitMQ 由 Testcontainers 经 @DynamicPropertySource 注入。
+spring:
+  application:
+    name: shopsphere-order
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+  # outbox 中继任务依赖 publisher-confirm 回调把 SENT(1) → CONFIRMED(2)；
+  # 生产由 Nacos 下发，测试这里显式开启。
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    # OrderTimeoutConsumer（q.order.timeout）手动 ack
+    listener:
+      simple:
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+
+# 缩短扫描周期，让 @Scheduled relay() 在测试窗口内更快触发（测试也会直接调 relay()）。
+order:
+  outbox:
+    scan-interval-ms: 1000
+    max-retry: 5

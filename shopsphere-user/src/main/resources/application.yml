@@ -34,6 +34,32 @@ spring:
             data-type: json
             rule-type: flow
 
+# Seata 分布式事务客户端（TM/RM）。
+# registry/config 用 Nacos 的 public 命名空间（namespace: ""）+ SEATA_GROUP，
+# 与 seata/application.yml 的 Seata Server 一致 —— 注意区别于业务自身的 namespace=dev。
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: shopsphere-tx-group
+  service:
+    vgroup-mapping:
+      shopsphere-tx-group: default
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: ${NACOS_HOST:localhost}:8848
+      namespace: ""
+      group: SEATA_GROUP
+      cluster: default
+  config:
+    type: nacos
+    nacos:
+      server-addr: ${NACOS_HOST:localhost}:8848
+      namespace: ""
+      group: SEATA_GROUP
+  data-source-proxy-mode: AT
+
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true

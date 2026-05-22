@@ -17,6 +17,7 @@
         <module>shopsphere-gateway</module>
         <module>shopsphere-user</module>
         <module>shopsphere-product</module>
+        <module>shopsphere-order</module>
     </modules>
 
     <properties>

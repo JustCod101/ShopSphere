@@ -13,9 +13,9 @@ import java.util.List;
 /**
  * 库存对账任务（T2.3）。
  *
- * <p>每 5 分钟比对 Redis {@code stock:product:{id}} 与 DB {@code stock - locked_stock}。
- * 差异打 ERROR 日志(含 productId / redis / db 三值),<b>不自动修复</b> —— 库存漂移
- * 涉及资金与超卖风险,须人工介入定位根因。
+ * <p>每 5 分钟比对 Redis {@code stock:product:{id}} 与 DB 可售库存池 {@code stock}
+ * （T3.3：stock 即可售量，与 Redis 同步语义）。差异打 ERROR 日志(含 productId / redis / db
+ * 三值),<b>不自动修复</b> —— 库存漂移涉及资金与超卖风险,须人工介入定位根因。
  *
  * <p>间隔可配 {@code product.stock.reconcile-interval-ms}(默认 300000)。
  */
@@ -32,7 +32,8 @@ public class StockReconciliationTask {
         List<ProductStockEntity> all = stockMapper.selectList(null);
         int mismatch = 0;
         for (ProductStockEntity s : all) {
-            long db = Math.max(0L, (long) s.getStock() - s.getLockedStock());
+            // stock 列即可售库存池（契约 §4.3）；与 Redis 直接比对
+            long db = s.getStock();
             long redis = stockRedisService.getAvailable(s.getProductId());
             if (redis != db) {
                 mismatch++;

@@ -1,0 +1,62 @@
+logging:
+  level:
+    com.shopsphere.order: INFO
+  pattern:
+    level: "%5p [${spring.application.name:}] [traceId=%X{traceId:-}]"
+
+spring:
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    date-format: yyyy-MM-dd'T'HH:mm:ss.SSSXXX
+    time-zone: UTC
+
+# Seata 分布式事务客户端（TM/RM）。
+# registry/config 用 Nacos 的 public 命名空间（namespace: ""）+ SEATA_GROUP，
+# 与 seata/application.yml 的 Seata Server 一致 —— 注意区别于业务自身的 namespace=dev。
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: shopsphere-tx-group
+  service:
+    vgroup-mapping:
+      shopsphere-tx-group: default
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: ${NACOS_HOST:localhost}:8848
+      namespace: ""
+      group: SEATA_GROUP
+      cluster: default
+  config:
+    type: nacos
+    nacos:
+      server-addr: ${NACOS_HOST:localhost}:8848
+      namespace: ""
+      group: SEATA_GROUP
+  data-source-proxy-mode: AT
+
+# Feign 降级：激活 ProductFeignClient 的 ProductFeignFallback（CLAUDE.md：Feign 必须有 fallback）。
+feign:
+  sentinel:
+    enabled: true
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: ASSIGN_ID
+  # OffsetDateTime ↔ DATETIME(3) UTC 强制 TypeHandler 自动注册
+  type-handlers-package: com.shopsphere.order.support
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
