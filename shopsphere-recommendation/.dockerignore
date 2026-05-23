@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+tests/
+.env
+.venv/
+venv/
+.git/
+.gitignore
+*.md
+!alembic/script.py.mako

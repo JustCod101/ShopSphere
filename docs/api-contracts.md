@@ -293,6 +293,18 @@ Resp:   data: { "orderId": 123, "status": "CREATED", "totalAmount": 199.00,
 - `5001` **不进 `Result.code`**，仅作监控埋点 / 日志维度（统计冷启动占比），`5002 模型未就绪`同理（未就绪时也回退热门 + `fallback=true`）。
 - Python 侧需实现与 Java `UserContextInterceptor` 等价的中间件：从 `X-Trace-Id` 读取并回写 `Result.traceId`、`X-User-Id` 入上下文。
 
+> ✅ **T4.1 已落地（骨架）**：FastAPI 项目搭起 —— `UserContextMiddleware`（X-User-Id/X-Trace-Id →
+> contextvar；受保护前缀 `/api/recommend/user/**` 缺 `X-User-Id` → `1001`）+ 全局异常 handler
+> （Result.fail 同构、业务错误 HTTP 200）+ `Result` dataclass（`timestamp` 用 `datetime.now(timezone.utc).isoformat()`，与 Java
+> `OffsetDateTime` UTC 同构）。错误码 `5001/5002` 仅监控埋点不进 `code`（C1）。Nacos 注册 + 配置拉取（`shopsphere-recommendation.yaml` 公共 +
+> `shopsphere-recommendation-{profile}.yaml` 机密；nacos-sdk-python 同步 SDK，启动期一次拉取，运行时回调线程托管）。
+> 自有库 `shopsphere_reco` 经 Alembic 迁移建表（`behavior_event` / `t_train_log`）。
+> MQ 行为消费者 `q.reco.behavior` 双绑 `shopsphere.behavior:user.behavior` + `shopsphere.order:order.created`
+> （后者展开为多条 `BehaviorEvent`，`eventId = order-{orderId}-{productId}`），手动 ack，幂等键 `INSERT ... ON DUPLICATE KEY UPDATE`，
+> 失败 `nack(requeue=False)` → `shopsphere.reco.dlx` (fanout) → `q.reco.behavior.dlq`；同时 ZADD
+> `user:behavior:{userId}` 供后续在线召回。**未做**：T4.2 离线 ItemCF 训练；T4.3 在线召回与冷启动热门兜底；
+> Python 与 Gateway 路由（C2，Java 不再 Feign 调推荐，Gateway 直连 Python）。
+
 ---
 
 ## 七、行为数据管道 ✅**已拍板：事件驱动 + 推荐自有库 `shopsphere_reco`**

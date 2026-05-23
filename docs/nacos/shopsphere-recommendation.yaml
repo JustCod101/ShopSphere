@@ -1,0 +1,9 @@
+# Nacos dataId: shopsphere-recommendation.yaml
+# namespace: DEFAULT   group: DEFAULT_GROUP
+#
+# 公共配置（profile 无关）。机密项（DB/MQ 口令）由 shopsphere-recommendation-{profile}.yaml 覆盖。
+
+model:
+  topk_default: 10        # 推荐返回 Top-K 默认值
+  sim_topn: 50            # 离线训练为每个 item 保留的 Top-N 相似 item 数（zset 长度）
+  train_cron: "0 3 * * *" # 每日 03:00 训练（APScheduler cron 五段式）

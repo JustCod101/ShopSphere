@@ -1,0 +1,16 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.0
+pydantic==2.7.0
+pydantic-settings==2.2.1
+nacos-sdk-python==0.1.12
+redis==5.0.4
+pymysql==1.1.0
+sqlalchemy==2.0.30
+alembic==1.13.1
+aio-pika==9.4.1
+pandas==2.2.2
+scikit-learn==1.4.2
+scipy==1.13.0
+apscheduler==3.10.4
+python-json-logger==2.0.7
+PyYAML==6.0.1

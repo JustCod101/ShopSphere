@@ -1,0 +1,27 @@
+# Nacos dataId: shopsphere-recommendation-dev.yaml
+# namespace: dev   group: DEFAULT_GROUP
+#
+# 【机密配置】此模板仅作字段示意，**真实口令不入仓库**；部署前粘贴到 Nacos console。
+#
+# Python 侧不接 Jasypt，机密项直接以明文存于 Nacos（Nacos 自身鉴权 + 内网隔离保证）；
+# 生产环境建议改为环境变量注入 + Vault/Secrets Manager。
+
+mysql:
+  host: ${MYSQL_HOST:localhost}
+  port: 3306
+  user: shopsphere
+  password: REPLACE_ME_DEV_DB_PASSWORD
+  db: shopsphere_reco
+
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: 6379
+  password: null            # dev 无密码；启用则填明文
+  db: 0
+
+rabbitmq:
+  host: ${RABBITMQ_HOST:localhost}
+  port: 5672
+  user: ${RABBITMQ_USER:guest}
+  password: REPLACE_ME_DEV_RABBIT_PASSWORD
+  vhost: shopsphere

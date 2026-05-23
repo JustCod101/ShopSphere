@@ -19,3 +19,13 @@ target/
 .idea/
 *.iml
 .DS_Store
+
+# Python（推荐服务）
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/

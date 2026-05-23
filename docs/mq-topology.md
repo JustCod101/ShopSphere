@@ -12,9 +12,10 @@
 
 | 名称 | 类型 | durable | 声明方 | 用途 |
 |---|---|---|---|---|
-| `shopsphere.order` | topic | 是 | Order（User 幂等重声明） | 订单事件主交换机 |
+| `shopsphere.order` | topic | 是 | Order（User / Reco 幂等重声明） | 订单事件主交换机 |
 | `shopsphere.order.dlx` | fanout | 是 | Order（User 幂等重声明） | 订单链路死信交换机（无视 rk 汇聚） |
-| `shopsphere.behavior` | topic | 是 | User | 行为埋点（T1.4 既有，本任务不动） |
+| `shopsphere.behavior` | topic | 是 | User（Reco 幂等重声明） | 行为埋点（T1.4 既有） |
+| `shopsphere.reco.dlx` | fanout | 是 | Reco（T4.1） | 推荐链路死信交换机（独立于 order.dlx） |
 
 ### Queues
 
@@ -25,7 +26,8 @@
 | `q.order.timeout.wait` | 是 | `x-message-ttl=30min`、`x-dead-letter-exchange=""`、`x-dead-letter-routing-key=q.order.timeout` | Order | 无（TTL 等待队列，T3.5） |
 | `q.order.timeout` | 是 | `x-dead-letter-exchange=shopsphere.order.dlx` | Order | Order · `OrderTimeoutConsumer`（T3.5） |
 | `q.order.dlq` | 是 | — | Order（User 幂等重声明） | 无（人工运维 / 后续补偿） |
-| `q.reco.behavior` | 是 | 由 Reco 决定 | Reco（Python） | Reco 行为消费者（本任务不涉） |
+| `q.reco.behavior` | 是 | `x-dead-letter-exchange=shopsphere.reco.dlx` | Reco（T4.1） | Reco · `BehaviorConsumer` |
+| `q.reco.behavior.dlq` | 是 | — | Reco（T4.1） | 无（人工运维） |
 
 ### Bindings
 
@@ -33,11 +35,12 @@
 |---|---|---|
 | `shopsphere.order` | `order.created` | `q.points` |
 | `shopsphere.order` | `order.created` | `q.notify` |
-| `shopsphere.order` | `order.created` | `q.reco.behavior`（Reco 自绑定） |
+| `shopsphere.order` | `order.created` | `q.reco.behavior`（Reco 自绑定，T4.1） |
 | `shopsphere.order` | `order.payment.timeout` | `q.order.timeout.wait` |
 | `""`（默认交换机，TTL 死信） | `q.order.timeout`（队列名） | `q.order.timeout` |
 | `shopsphere.order.dlx` | （fanout，无 rk） | `q.order.dlq` |
-| `shopsphere.behavior` | `user.behavior` | `q.reco.behavior`（Reco 自绑定） |
+| `shopsphere.behavior` | `user.behavior` | `q.reco.behavior`（Reco 自绑定，T4.1） |
+| `shopsphere.reco.dlx` | （fanout，无 rk） | `q.reco.behavior.dlq` |
 
 **声明归属原则**:「消费方拥有队列」—— 生产方声明 exchange，消费方声明并绑定自己的队列。
 `shopsphere.order` / `shopsphere.order.dlx` / `q.order.dlq` 由 Order 主声明，User 侧
@@ -78,7 +81,7 @@ ConfirmCallback (broker 异步)
 |---|---|---|---|
 | `PointsConsumer` | `q.points` | `t_points_log.order_id`（UNIQUE `uk_order`） | 幂等键 INSERT 与积分累加同一 `@Transactional`；重复投递 → `DuplicateKeyException` → 整事务回滚、幂等 ack |
 | `NotificationConsumer` | `q.notify` | Redis `notify:sent:{orderNo}` | `SET NX EX 86400`；已存在即跳过。Redis 不可用时 fail-open（本期仅日志，重复无害） |
-| Reco 行为消费者 | `q.reco.behavior` | `BehaviorEvent.eventId` | Reco 服务侧实现 |
+| Reco · `BehaviorConsumer`（T4.1） | `q.reco.behavior` | `behavior_event.event_id`（UNIQUE） | `INSERT ... ON DUPLICATE KEY UPDATE event_id=event_id`（no-op，等价 ON CONFLICT DO NOTHING）。`user.behavior` 用 payload 自带 `eventId`；`order.created` 展开为 N 行,`eventId = f"order-{orderId}-{productId}"`（确定性派生，重投幂等） |
 
 所有 `order.*` 消费者 **手动 ack**（`acknowledge-mode: manual`），消费者内显式 `basicAck` /
 `basicNack`，不依赖容器自动重试。
