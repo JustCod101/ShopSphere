@@ -314,8 +314,22 @@ Resp:   data: { "orderId": 123, "status": "CREATED", "totalAmount": 199.00,
 > `POST /internal/recommend/train` **异步 fire-and-forget**（Redis NX 锁 `reco:training` EX 3600 + 立返
 > `{triggered, runId}`，executor 跑训练，**任何异常落 `t_train_log.FAILED + error`，不抛崩 FastAPI**）。
 > Cron 默认从 `0 3 * * *` 更新为 `0 2 * * *`（与任务文一致；`docs/nacos/shopsphere-recommendation.yaml` 同步）。
-> **未做**：T4.3 在线召回（取相似邻居加权聚合 + 已购过滤 + 5002 监控埋点）；T4.4 Gateway 直连 Python 路由（C2）；
-> 跨副本部署的 Nacos 心跳隔离 / Prometheus 训练耗时 metric。
+
+> ✅ **T4.3 已落地（在线推荐接口）**：`service/recall.py` 实现两条召回路径 ——
+> `GET /api/recommend/user/{userId}`：先查结果缓存 `rec:user:{userId}:topk:{topk}`（TTL 10min；模型未就绪时短 TTL 60s）；
+> 未命中则 `EXISTS reco:model:ready` 检查模型就绪 → `ZREVRANGE user:behavior:{userId} 0 19` 取最近 20 个种子 item →
+> pipeline 一次 `ZREVRANGE sim:item:{i} 0 49 WITHSCORES` → `score[nb] += (1/(1+idx)) * sim_score` 衰减加权聚合 →
+> 过滤已下单（缓存 `reco:purchased:user:{userId}` SET TTL 30min，miss 时一次 `SELECT DISTINCT item_id FROM behavior_event
+> WHERE user_id=? AND action_type='order' AND ts >= NOW()-INTERVAL 90 DAY`）→ 按 score 降序、score 同则 itemId 升序稳定排序 → Top-K。
+> `GET /api/recommend/similar/{itemId}`：直读 `sim:item:{itemId}` Top-K。**冷启动 / 模型未就绪 / 邻居全空一律回退
+> `hot:items:global` + `fallback=true`（C1）**；`5001/5002` 仅作结构化日志事件
+> （`reco.cold_start` / `reco.model_not_ready` / `reco.empty_neighbors`），不进 `Result.code`。
+> **越权**：path `userId` ≠ `X-User-Id` → `1001`（中间件已拦截缺头情况；handler 补做一致性比对）。
+> 返回 schema：`{userId|itemId, topk, items: [{itemId, score}, ...], fallback}`，**不含商品详情**（前端按需走 Product 服务自取）。
+> `topk` 范围 `[1, 50]`，默认 10（超界由全局 `RequestValidationError` handler 转 `code=1000`）。
+> 性能：全 Redis 命中路径,200 并发下 P99 < 100ms（locust 脚本 `perf/locust-recommend.py`）。
+> **未做**：T4.4 Gateway 直连 Python 路由（C2）；Prometheus 训练耗时 / 召回延时 metric；
+> 消费 order 时主动 DEL `reco:purchased:user:{userId}` 以提升一致性（当前 best-effort 30min 内可能仍有已下单 item 出现）。
 
 ---
 

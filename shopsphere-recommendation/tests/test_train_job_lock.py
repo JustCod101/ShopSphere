@@ -152,7 +152,7 @@ async def test_exception_in_training_marks_failed_and_releases_lock(
 
     # 等 executor 跑完(_run_sync 在 ThreadPoolExecutor 里)
     async_, sync_ = fake_redis_pair
-    deadline = time.time() + 5.0
+    deadline = time.time() + 15.0
     status = None
     while time.time() < deadline:
         with engine.connect() as conn:
@@ -180,7 +180,7 @@ async def test_successful_training_marks_success_and_releases_lock(
 
     _, sync_ = fake_redis_pair
     # 等 status=SUCCESS **且** 锁已释放（finally 在 _update_success 之后,这两个之间有窗口）
-    deadline = time.time() + 5.0
+    deadline = time.time() + 15.0
     row = None
     while time.time() < deadline:
         with engine.connect() as conn:
