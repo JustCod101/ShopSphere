@@ -55,7 +55,7 @@ class RabbitMQSettings(BaseModel):
 class ModelSettings(BaseModel):
     topk_default: int = 10
     sim_topn: int = 50
-    train_cron: str = "0 3 * * *"
+    train_cron: str = "0 2 * * *"  # 02:00 UTC 全量训练（T4.2）
 
 
 class AppSettings(BaseSettings):

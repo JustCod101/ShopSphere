@@ -1,6 +1,6 @@
 """健康检查接口（契约 §6.4）。
 
-`model_ready` = `model:sim:ready` Redis key 是否存在 —— T4.2 训练完成后置位。
+`model_ready` = `reco:model:ready` Redis key 是否存在 —— T4.2 训练完成后置位（TTL 26h）。
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ async def health(request: Request) -> JSONResponse:
     model_ready = False
     if redis is not None:
         try:
-            model_ready = bool(await redis.exists("model:sim:ready"))
+            model_ready = bool(await redis.exists("reco:model:ready"))
         except Exception:  # noqa: BLE001
             logger.warning("health: redis exists check failed", exc_info=True)
             model_ready = False

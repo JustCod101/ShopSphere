@@ -6,4 +6,4 @@
 model:
   topk_default: 10        # 推荐返回 Top-K 默认值
   sim_topn: 50            # 离线训练为每个 item 保留的 Top-N 相似 item 数（zset 长度）
-  train_cron: "0 3 * * *" # 每日 03:00 训练（APScheduler cron 五段式）
+  train_cron: "0 2 * * *" # 每日 02:00 UTC 全量训练（T4.2,APScheduler cron 五段式;timezone 由 AsyncIOScheduler 注入）

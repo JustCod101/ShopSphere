@@ -12,17 +12,20 @@ import sys
 from contextlib import asynccontextmanager
 from typing import Optional
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from pythonjsonlogger import jsonlogger
+from pytz import utc
 
 from app.api import health, recommend
 from app.consumer.behavior_consumer import BehaviorConsumer
 from app.core.config import AppSettings, build_settings
 from app.core.db import make_engine
 from app.core.nacos_client import NacosBootstrap, resolve_register_ip
-from app.core.redis_client import make_redis
+from app.core.redis_client import make_redis, make_sync_redis
 from app.middleware.context import UserContextMiddleware
 from app.middleware.exception import install_exception_handlers
+from app.tasks.train_job import TrainJob
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +69,23 @@ async def lifespan(app: FastAPI):
     # 资源（DB / Redis）
     engine = make_engine(settings.mysql)
     redis = make_redis(settings.redis)
+    redis_sync = make_sync_redis(settings.redis)  # T4.2：训练任务在 executor 线程用
     app.state.db_engine = engine
     app.state.redis = redis
+    app.state.redis_sync = redis_sync
 
     # MQ 消费者
     consumer = BehaviorConsumer(settings, engine, redis)
     app.state.consumer = consumer
     await consumer.start()
+
+    # T4.2：APScheduler + TrainJob
+    scheduler = AsyncIOScheduler(timezone=utc)
+    train_job = TrainJob(engine, redis, redis_sync, settings)
+    train_job.schedule(scheduler)
+    scheduler.start()
+    app.state.scheduler = scheduler
+    app.state.train_job = train_job
 
     # Nacos 注册（最后做，确保流量进来时资源已就绪）
     register_ip = resolve_register_ip()
@@ -90,9 +103,17 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logger.exception("nacos deregister failed")
         try:
+            scheduler.shutdown(wait=False)
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduler shutdown failed")
+        try:
             await consumer.stop()
         except Exception:  # noqa: BLE001
             logger.exception("consumer stop failed")
+        try:
+            redis_sync.close()
+        except Exception:  # noqa: BLE001
+            logger.exception("redis_sync close failed")
         try:
             await redis.aclose()
         except Exception:  # noqa: BLE001

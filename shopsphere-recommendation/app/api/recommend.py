@@ -2,13 +2,13 @@
 
 - `/api/recommend/user/{userId}` (A) —— 个性化召回；T4.3 实现，本期冷启动 fallback 空列表
 - `/api/recommend/similar/{itemId}` (P) —— i2i 相似；T4.3 实现，本期空列表
-- `/internal/recommend/train` —— 手动触发训练；T4.2 实现
+- `/internal/recommend/train` (T4.2) —— 异步 fire-and-forget,立即返回 runId
 
 C1 拍板：冷启动 / 模型未就绪 一律 `code=0 + data.fallback=true`，5001/5002 仅监控埋点不进 code。
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from starlette.responses import JSONResponse
 
 from app.core.result import Result
@@ -40,6 +40,8 @@ async def recommend_similar(item_id: int, topk: int = Query(10, ge=1, le=100)) -
 
 
 @router.post("/internal/recommend/train")
-async def trigger_train() -> JSONResponse:
-    # T4.2 接入 APScheduler / 同步训练
-    return JSONResponse(Result.ok({"triggered": True, "note": "skeleton; impl pending T4.2"}).to_dict())
+async def trigger_train(request: Request) -> JSONResponse:
+    """T4.2：异步 fire-and-forget。trigger 内拿 NX 锁 + 插 RUNNING 行 + executor 跑训练。"""
+    train_job = request.app.state.train_job
+    info = await train_job.trigger()
+    return JSONResponse(Result.ok(info).to_dict())

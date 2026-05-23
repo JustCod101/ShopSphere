@@ -302,8 +302,20 @@ Resp:   data: { "orderId": 123, "status": "CREATED", "totalAmount": 199.00,
 > MQ 行为消费者 `q.reco.behavior` 双绑 `shopsphere.behavior:user.behavior` + `shopsphere.order:order.created`
 > （后者展开为多条 `BehaviorEvent`，`eventId = order-{orderId}-{productId}`），手动 ack，幂等键 `INSERT ... ON DUPLICATE KEY UPDATE`，
 > 失败 `nack(requeue=False)` → `shopsphere.reco.dlx` (fanout) → `q.reco.behavior.dlq`；同时 ZADD
-> `user:behavior:{userId}` 供后续在线召回。**未做**：T4.2 离线 ItemCF 训练；T4.3 在线召回与冷启动热门兜底；
-> Python 与 Gateway 路由（C2，Java 不再 Feign 调推荐，Gateway 直连 Python）。
+> `user:behavior:{userId}` 供后续在线召回。
+
+> ✅ **T4.2 已落地（离线训练）**：`service/itemcf.py` 实现 ItemCF —— 流式分批读
+> `behavior_event`（pandas server-side cursor + chunksize 10000）→ 隐式反馈打分（view=1/cart=3/order=5）
+> → `scipy.sparse.csr_matrix` 用户-物品矩阵 → L2 列归一 → `sim = X^T @ X` → 热门惩罚
+> `sim[i,j] /= log(1 + popularity[j])` → 每 item Top-50 邻居 → Redis ZSET `sim:item:{itemId}`（TTL 25h，
+> 先 DEL 再 ZADD 避免旧邻居残留）。冷启动热门：近 7 天 `sum(weight)` Top-100 → ZSET `hot:items:global`（TTL 25h）。
+> 训练成功置 `reco:model:ready=1`（TTL 26h，**health.py 读此 key**——T4.1 旧 `model:sim:ready` 已修正）。
+> 调度：`AsyncIOScheduler(timezone=utc)` cron `0 2 * * *` 每日 02:00 UTC 全量训练；
+> `POST /internal/recommend/train` **异步 fire-and-forget**（Redis NX 锁 `reco:training` EX 3600 + 立返
+> `{triggered, runId}`，executor 跑训练，**任何异常落 `t_train_log.FAILED + error`，不抛崩 FastAPI**）。
+> Cron 默认从 `0 3 * * *` 更新为 `0 2 * * *`（与任务文一致；`docs/nacos/shopsphere-recommendation.yaml` 同步）。
+> **未做**：T4.3 在线召回（取相似邻居加权聚合 + 已购过滤 + 5002 监控埋点）；T4.4 Gateway 直连 Python 路由（C2）；
+> 跨副本部署的 Nacos 心跳隔离 / Prometheus 训练耗时 metric。
 
 ---
 
