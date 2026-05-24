@@ -166,6 +166,8 @@ Python 端 `resolve_register_ip()` 优先级:env `NACOS_REGISTER_IP` > `socket.g
 
 ## 7. 故障排查
 
+> 本节聚焦**部署期**问题(端口冲突、Nacos IP、镜像构建等)。**运行期/集成期**故障(TCC 空回滚、Redis/DB 漂移、Sentinel 限流、JWT 401 等)请见 **[docs/troubleshooting.md](troubleshooting.md)**。
+
 ### 7.1 Java 服务启动 30s 报 Nacos 连不上
 
 **原因**:Nacos `start_period=30s` 偶尔不够(尤其 arm64 amd64 模拟)。
@@ -274,7 +276,7 @@ open http://localhost:3000/d/order-perf   # Grafana 看板(admin/admin123)
 
 **约束**:
 - 栈必须先 healthy(`scripts/wait-stack-healthy.sh`)。
-- `prepare-users.sh` 写入 `t_user`(命名 `perf_<ts>_NNNNN`),`reset-fixtures.sh` 不动 `t_user`,users.csv 持久复用。
+- `prepare-users.sh` 写入 `t_user`(命名 `pf<ts>NNNN`),`reset-fixtures.sh` 不动 `t_user`,users.csv 持久复用。
 - 失败:看 `perf/results/blocker-snapshot.txt`,不擅自改源码,等用户拍板。详见 `perf/README.md`。
 
 **监控**(T5.3 附带接入):
