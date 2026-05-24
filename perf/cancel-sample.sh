@@ -22,12 +22,16 @@ if [ "$total" -lt "$CANCEL_N" ]; then
   echo "paid=$total < CANCEL_N=$CANCEL_N,改用全量"
   CANCEL_N="$total"
 fi
+if [ "$CANCEL_N" -le 0 ]; then
+  echo "cancelled=0 err=0"
+  exit 0
+fi
 
 # 随机取 N 行(macOS/Linux:用 awk + shuf 不便,直接用 head + sort -R)
 if command -v shuf >/dev/null 2>&1; then
   SAMPLE=$(shuf -n "$CANCEL_N" "$IN")
 else
-  SAMPLE=$(sort -R "$IN" | head -n "$CANCEL_N")
+  SAMPLE=$(sort -R "$IN" | sed -n "1,${CANCEL_N}p")
 fi
 
 cancel_one() {
@@ -49,8 +53,21 @@ cancel_one() {
 export -f cancel_one
 export GATEWAY OUT ERR
 
+run_parallel() {
+  local concurrency="$1"
+  local n=0
+  while IFS= read -r line; do
+    cancel_one "$line" &
+    n=$((n + 1))
+    if [ $((n % concurrency)) -eq 0 ]; then
+      wait || true
+    fi
+  done
+  wait || true
+}
+
 echo "/cancel × $CANCEL_N(并发 30)"
-printf '%s\n' "$SAMPLE" | xargs -I{} -P 30 bash -c 'cancel_one "$@"' _ {} || true
+run_parallel 30 <<< "$SAMPLE"
 
 ok=$(wc -l < "$OUT" | tr -d ' ')
 fail=$(wc -l < "$ERR" | tr -d ' ')

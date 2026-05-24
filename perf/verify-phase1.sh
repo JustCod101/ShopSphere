@@ -61,9 +61,9 @@ dump_blocker() {
 }
 
 # ------- 实测 -------
-success=$(wc -l < "$R/orders-success.csv" 2>/dev/null | tr -d ' ' || echo 0)
-oversold=$(wc -l < "$R/oversold-rejected.csv" 2>/dev/null | tr -d ' ' || echo 0)
-errors=$(wc -l < "$R/errors.csv" 2>/dev/null | tr -d ' ' || echo 0)
+success=$([ -f "$R/orders-success.csv" ] && wc -l < "$R/orders-success.csv" | tr -d ' ' || echo 0)
+oversold=$([ -f "$R/oversold-rejected.csv" ] && wc -l < "$R/oversold-rejected.csv" | tr -d ' ' || echo 0)
+errors=$([ -f "$R/errors.csv" ] && wc -l < "$R/errors.csv" | tr -d ' ' || echo 0)
 
 db_row=$(mysql_q "SELECT stock, locked_stock FROM shopsphere_product.t_product_stock WHERE product_id=$PRODUCT_ID;")
 db_stock=$(echo "$db_row" | awk '{print $1}')

@@ -6,10 +6,11 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -28,6 +29,26 @@ from app.middleware.exception import install_exception_handlers
 from app.tasks.train_job import TrainJob
 
 logger = logging.getLogger(__name__)
+
+
+async def _nacos_heartbeat_loop(nacos: NacosBootstrap, ip: str, port: int) -> None:
+    interval = 5.0
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            resp = await asyncio.to_thread(nacos.send_heartbeat, ip, port)
+            client_interval = resp.get("clientBeatInterval") if isinstance(resp, dict) else None
+            if isinstance(client_interval, int) and client_interval > 0:
+                interval = max(1.0, min(client_interval / 1000.0, 10.0))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("nacos heartbeat failed; trying to register again")
+            try:
+                await asyncio.to_thread(nacos.register, ip, port)
+            except Exception:  # noqa: BLE001
+                logger.exception("nacos re-register failed")
+            interval = 5.0
 
 
 def _setup_logging() -> None:
@@ -93,11 +114,16 @@ async def lifespan(app: FastAPI):
     app.state.register_ip = register_ip
     app.state.register_port = register_port
     nacos.register(register_ip, register_port)
+    heartbeat_task = asyncio.create_task(_nacos_heartbeat_loop(nacos, register_ip, register_port))
+    app.state.nacos_heartbeat_task = heartbeat_task
 
     try:
         yield
     finally:
         # 反向关停（best-effort）
+        heartbeat_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat_task
         try:
             nacos.deregister(register_ip, register_port)
         except Exception:  # noqa: BLE001

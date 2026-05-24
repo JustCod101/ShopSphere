@@ -1,5 +1,5 @@
 # Nacos dataId: shopsphere-recommendation.yaml
-# namespace: DEFAULT   group: DEFAULT_GROUP
+# namespace: dev   group: DEFAULT_GROUP
 #
 # 公共配置（profile 无关）。机密项（DB/MQ 口令）由 shopsphere-recommendation-{profile}.yaml 覆盖。
 

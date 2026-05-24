@@ -4,7 +4,7 @@
 #   J DB.stock = INIT_STOCK - success + cancelled(Cancel 回补 stock)
 #   K locked_stock == success - paid + 0(取消的是 paid 的,locked 已为 0;若取消 CREATED 单 locked-=q)
 #   L Redis 回补:redis == DB.stock
-#   M 抽 3 单:t_order.status='CANCELLED'
+#   M 抽 3 单:t_order.status=4(CANCELLED)
 set -uo pipefail
 
 PRODUCT_ID="${PRODUCT_ID:-2001}"
@@ -83,13 +83,13 @@ if [ "$redis_val" != "$db_stock" ]; then
 fi
 log "L Redis/DB 一致:OK ($redis_val == $db_stock)"
 
-# M. 抽 3 个取消单确认 status='CANCELLED'
+# M. 抽 3 个取消单确认 status=4(CANCELLED)
 if [ "$cancelled" -ge 3 ]; then
   sample_ids=$(head -n 3 "$R/orders-cancelled.csv" | awk -F, '{print $1}' | tr '\n' ',' | sed 's/,$//')
   s=$(mysql_q "SELECT GROUP_CONCAT(status) FROM shopsphere_order.t_order WHERE id IN ($sample_ids);")
   log "M 抽样取消单 status=$s"
   case "$s" in
-    CANCELLED,CANCELLED,CANCELLED) log "M status 全 CANCELLED:OK" ;;
+    4,4,4|CANCELLED,CANCELLED,CANCELLED) log "M status 全 CANCELLED:OK" ;;
     *) dump_blocker "M 抽样取消单状态非 CANCELLED:$s" ;;
   esac
 fi

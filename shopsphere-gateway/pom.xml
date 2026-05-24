@@ -30,6 +30,11 @@
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
+        <!-- Gateway 的 lb:// 路由需要 Spring Cloud LoadBalancer 按 Nacos serviceName 选实例。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
         <!-- 启用 bootstrap.yml 引导上下文（Nacos config 在引导阶段拉取） -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

@@ -97,8 +97,8 @@ class NacosBootstrap:
 
     # ------------- 服务注册 -------------
     def register(self, ip: str, port: int, group: str = DEFAULT_GROUP) -> None:
-        """注册到 Nacos —— ephemeral=True，SDK 启 daemon 线程发心跳。"""
-        self._client.add_naming_instance(
+        """注册到 Nacos ephemeral 实例。心跳由 FastAPI lifespan 中的后台任务维护。"""
+        ok = self._client.add_naming_instance(
             service_name=self.service_name,
             ip=ip,
             port=port,
@@ -110,7 +110,27 @@ class NacosBootstrap:
             ephemeral=True,
             group_name=group,
         )
+        if not ok:
+            raise RuntimeError(f"Nacos register failed: service={self.service_name} ip={ip} port={port}")
         logger.info("Nacos registered: service=%s ip=%s port=%s", self.service_name, ip, port)
+
+    def send_heartbeat(self, ip: str, port: int, group: str = DEFAULT_GROUP) -> dict:
+        """发送 Nacos 临时实例心跳。
+
+        nacos-sdk-python 0.1.12 只提供 send_heartbeat API，不会在 add_naming_instance 后自动续约。
+        """
+        resp = self._client.send_heartbeat(
+            service_name=self.service_name,
+            ip=ip,
+            port=port,
+            cluster_name="DEFAULT",
+            weight=1.0,
+            metadata={"language": "python", "framework": "fastapi"},
+            ephemeral=True,
+            group_name=group,
+        )
+        logger.debug("Nacos heartbeat ok: service=%s ip=%s port=%s resp=%s", self.service_name, ip, port, resp)
+        return resp
 
     def deregister(self, ip: str, port: int, group: str = DEFAULT_GROUP) -> None:
         try:

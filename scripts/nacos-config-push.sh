@@ -8,7 +8,7 @@
 # 推送内容(9 份):
 #   - dev namespace: shopsphere-{gateway,user,product,order}.yaml(Java 公共非密)
 #   - dev namespace: shopsphere-jwt-public-key.pem + Sentinel 流控规则
-#   - public namespace: shopsphere-recommendation.yaml + shopsphere-recommendation-dev.yaml
+#   - dev namespace: shopsphere-recommendation.yaml + shopsphere-recommendation-dev.yaml
 set -e
 
 NACOS_URL="${NACOS_URL:-http://nacos:8848}"
@@ -100,9 +100,9 @@ push shopsphere-product.yaml          yaml "$DEV_NAMESPACE"
 push shopsphere-order.yaml            yaml "$DEV_NAMESPACE"
 push shopsphere-jwt-public-key.pem    text "$DEV_NAMESPACE"
 
-# Python 服务读取 public namespace(容器/本地皆可用,用 ${VAR:default})
-push shopsphere-recommendation.yaml   yaml
-push shopsphere-recommendation-dev.yaml yaml
+# Python 服务与 Gateway discovery 同用 namespace=dev
+push shopsphere-recommendation.yaml     yaml "$DEV_NAMESPACE"
+push shopsphere-recommendation-dev.yaml yaml "$DEV_NAMESPACE"
 
 # Sentinel 流控规则(Java 服务读取 namespace=dev)
 push shopsphere-gateway-flow-rules.json json "$DEV_NAMESPACE"

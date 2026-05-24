@@ -35,9 +35,22 @@ pay_one() {
 export -f pay_one
 export GATEWAY OUT ERR
 
+run_parallel() {
+  local concurrency="$1"
+  local n=0
+  while IFS= read -r line; do
+    pay_one "$line" &
+    n=$((n + 1))
+    if [ $((n % concurrency)) -eq 0 ]; then
+      wait || true
+    fi
+  done
+  wait || true
+}
+
 total=$(wc -l < "$IN" | tr -d ' ')
 echo "/pay × $total(并发 50)"
-cat "$IN" | xargs -I{} -P 50 bash -c 'pay_one "$@"' _ {} || true
+run_parallel 50 < "$IN"
 
 paid=$(wc -l < "$OUT" | tr -d ' ')
 fail=$(wc -l < "$ERR" | tr -d ' ')

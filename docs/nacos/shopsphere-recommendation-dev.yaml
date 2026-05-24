@@ -1,5 +1,5 @@
 # Nacos dataId: shopsphere-recommendation-dev.yaml
-# namespace: DEFAULT   group: DEFAULT_GROUP
+# namespace: dev   group: DEFAULT_GROUP
 #
 # Python 推荐服务 dev 环境配置。
 # Python 端 nacos_client.py 已支持 ${VAR:default} 占位符展开(T5.1),与 Java Spring 行为对齐。

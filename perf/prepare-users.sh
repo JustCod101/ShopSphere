@@ -3,11 +3,13 @@
 # 用法:bash perf/prepare-users.sh [--force]
 #       USERS=1000 GATEWAY=http://localhost:8080 bash perf/prepare-users.sh
 # 幂等:users.csv 已存在且行数 == USERS 时直接跳过,除非 --force。
-# 并发:xargs -P 20(再高会撞 Sentinel 登录限流)。
+# 默认串行并轻微限速,避免撞 Gateway api-user-register 5 QPS Sentinel 规则。
 set -euo pipefail
 
 USERS="${USERS:-1000}"
 GATEWAY="${GATEWAY:-http://localhost:8080}"
+PREPARE_PARALLEL="${PREPARE_PARALLEL:-1}"
+PREPARE_SLEEP="${PREPARE_SLEEP:-0.25}"
 OUT_DIR="$(cd "$(dirname "$0")" && pwd)/results"
 USERS_CSV="$OUT_DIR/users.csv"
 FORCE=""
@@ -42,7 +44,7 @@ PASSWORD="Perf12345"
 
 register_one() {
   local i="$1"
-  local uname="perf_${TS}_$(printf '%05d' "$i")"
+  local uname="pf${TS}$(printf '%04d' "$i")"
   local reg_body resp uid login_resp token
 
   reg_body=$(jq -nc --arg u "$uname" --arg p "$PASSWORD" '{username:$u, password:$p}')
@@ -65,13 +67,14 @@ register_one() {
 
   # 单行 append 由 OS 在 < PIPE_BUF 时原子;CSV 一行 << 4KB 安全
   printf '%s,%s\n' "$uid" "$token" >> "$USERS_CSV"
+  sleep "$PREPARE_SLEEP"
 }
 
 export -f register_one
-export TS PASSWORD GATEWAY OUT_DIR USERS_CSV
+export TS PASSWORD GATEWAY OUT_DIR USERS_CSV PREPARE_SLEEP
 
-echo "注册 $USERS 用户 -> $USERS_CSV(并发 20)"
-seq 1 "$USERS" | xargs -P 20 -I {} bash -c 'register_one "$@"' _ {} || true
+echo "注册 $USERS 用户 -> $USERS_CSV(并发 $PREPARE_PARALLEL, sleep ${PREPARE_SLEEP}s)"
+seq 1 "$USERS" | xargs -P "$PREPARE_PARALLEL" -I {} bash -c 'register_one "$@"' _ {} || true
 
 got=$(wc -l < "$USERS_CSV" | tr -d ' ')
 echo "完成:$got/$USERS"
