@@ -62,7 +62,10 @@ public class RabbitConfig {
      */
     @Bean
     public Queue orderTimeoutWaitQueue() {
-        int ttlMs = orderProperties.getPayment().getTimeoutMinutes() * 60_000;
+        long override = orderProperties.getPayment().getQueueTtlMs();
+        int ttlMs = override > 0
+                ? (int) override
+                : orderProperties.getPayment().getTimeoutMinutes() * 60_000;
         return QueueBuilder.durable(OrderConstants.QUEUE_ORDER_TIMEOUT_WAIT)
                 .ttl(ttlMs)
                 .deadLetterExchange("")

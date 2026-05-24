@@ -216,9 +216,48 @@ docker compose up -d
 
 nacos / seata / sentinel `platform: linux/amd64` 模拟,启动 30~90s 是正常的。`start_period` 已经设宽。如果超时,检查 Docker Desktop 资源配额(`Settings → Resources` 加 CPU/RAM)。
 
+### 7.8 E2E:`mvn -Pe2e verify` 立即失败
+
+栈尚未 healthy。先跑 `bash scripts/wait-stack-healthy.sh`(5 分钟超时)再起 E2E。
+
+### 7.9 E2E:case h 未通过 / `queueTtlMs 不是 30000ms`
+
+RabbitMQ 队列 `q.order.timeout.wait` 的 `x-message-ttl` 一旦声明不可改。case h 跑前需:
+```bash
+bash scripts/e2e-set-timeout.sh    # 推 queueTtlMs=30000 到 Nacos + compose down -v + up -d
+bash scripts/wait-stack-healthy.sh
+mvn -f shopsphere-e2e-test/pom.xml -Pe2e,e2e-slow verify
+```
+
 ---
 
-## 8. 验证清单
+## 8. E2E 测试(T5.2)
+
+独立模块 `shopsphere-e2e-test`(**不进 reactor**),手动构建。
+
+```bash
+# 常规 13 个 case(不含 30s 超时)
+mvn -f shopsphere-e2e-test/pom.xml -Pe2e verify
+
+# 全量 15 个 case(含 case h:30s 超时自动取消)
+bash scripts/e2e-set-timeout.sh
+bash scripts/wait-stack-healthy.sh
+mvn -f shopsphere-e2e-test/pom.xml -Pe2e,e2e-slow verify
+
+# 看报告
+cat docs/e2e-report.md
+# 失败日志
+ls target/e2e-logs/
+```
+
+**约束**:
+- 栈必须先 healthy(`scripts/wait-stack-healthy.sh`)。
+- DB 在 @BeforeEach 自动 truncate(保留商品/类目种子);**不要跑 E2E 时同时手动用 stack**。
+- case h `@Tag("timeout")` 默认跳;需 `-Pe2e,e2e-slow` 才跑,且队列 TTL 须先压到 30000ms。
+
+---
+
+## 9. 验证清单
 
 ```bash
 # 1. 容器全 Up healthy
@@ -239,8 +278,9 @@ bash scripts/e2e-recommend.sh
 
 ---
 
-## 9. 变更记录
+## 10. 变更记录
 
 | 日期 | 任务 | 内容 |
 |---|---|---|
 | 2026-05-24 | T5.1 | docker-compose.yml(全栈)+ 4 个 Java Dockerfile + Python entrypoint + .env.example 扩展 + 本文档。修复 `nacos_client.py` 不展开 ${VAR} 的既有 bug(`expand_env_placeholders`)。 |
+| 2026-05-24 | T5.2 | shopsphere-e2e-test 模块(15 个 case);OrderProperties.payment.queueTtlMs 配置项 + scripts/e2e-set-timeout.sh / scripts/wait-stack-healthy.sh。 |

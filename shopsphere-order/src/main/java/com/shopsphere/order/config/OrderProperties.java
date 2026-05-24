@@ -20,6 +20,13 @@ public class OrderProperties {
     public static class Payment {
         /** 未支付超时窗口（分钟），默认 30（api-contracts §6.3 / S4）。 */
         private int timeoutMinutes = 30;
+        /**
+         * 超时队列 TTL（毫秒）。>0 时优先于 {@link #timeoutMinutes}，用于 E2E 把 30min 压到 30s
+         * （{@code q.order.timeout.wait} 的 {@code x-message-ttl} 与下单返回的 {@code payExpireAt}
+         * 同源）。默认 0 = 沿用 {@code timeoutMinutes}。注意：RabbitMQ 队列 TTL 一旦声明不可改，
+         * 修改后须 {@code compose down -v} 让队列重声明。
+         */
+        private long queueTtlMs = 0;
     }
 
     /**

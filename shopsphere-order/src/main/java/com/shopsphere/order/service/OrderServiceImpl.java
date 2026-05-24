@@ -135,7 +135,11 @@ public class OrderServiceImpl implements OrderService {
             stockItems.add(new StockItem(productId, quantity));
         }
 
-        OffsetDateTime payExpireAt = now.plusMinutes(orderProperties.getPayment().getTimeoutMinutes());
+        // queueTtlMs > 0 时优先（E2E 短超时场景），否则按 timeoutMinutes 分钟为准
+        long ttlMs = orderProperties.getPayment().getQueueTtlMs();
+        OffsetDateTime payExpireAt = ttlMs > 0
+                ? now.plusNanos(ttlMs * 1_000_000L)
+                : now.plusMinutes(orderProperties.getPayment().getTimeoutMinutes());
 
         OrderEntity order = OrderEntity.builder()
                 .id(orderId)

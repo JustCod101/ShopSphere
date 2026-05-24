@@ -7,6 +7,11 @@ order:
     # S4 未支付超时窗口（分钟）。决定 t_order.pay_expire_at 与 order.payment.timeout 延迟消息的延迟。
     # 默认 30（api-contracts §6.3）；业务方可调。
     timeout-minutes: 30
+    # T5.2 E2E 用：>0 时优先于 timeout-minutes，把超时压到秒级（默认 0 = 沿用 timeout-minutes）。
+    # 注意：RabbitMQ 队列 q.order.timeout.wait 的 x-message-ttl 一旦声明不可改，
+    # 改此值须 `docker compose down -v` 让队列重声明。E2E 跑 case h 前用
+    # `bash scripts/e2e-set-timeout.sh` 自动推 30000 并重启栈。
+    queue-ttl-ms: 0
   request:
     # t_order_request 幂等记录清理 cron（S5 TTL 24h）。默认每日 04:00。
     cleanup-cron: "0 0 4 * * *"
