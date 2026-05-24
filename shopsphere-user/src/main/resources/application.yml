@@ -74,7 +74,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus      # T5.3：Prometheus 指标抓取
   endpoint:
     health:
       show-details: never

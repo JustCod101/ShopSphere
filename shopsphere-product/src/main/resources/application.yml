@@ -62,7 +62,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,metrics       # T2.2：metrics 用于缓存命中率监控
+        include: health,metrics,prometheus   # T2.2：metrics 缓存命中率；T5.3：prometheus 指标抓取
   endpoint:
     health:
       show-details: never

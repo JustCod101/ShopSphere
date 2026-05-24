@@ -437,3 +437,60 @@ services:
         condition: service_healthy
     networks: [shopsphere-net]
     restart: on-failure
+
+  # ====================================================================
+  # 监控:Prometheus + Grafana(profile: monitoring; java 默认带）
+  # T5.3 压测期看板:QPS / P99 / JVM Heap / HikariCP。
+  # 抓取目标:user/product/order 的 /actuator/prometheus(gateway management
+  # 走 127.0.0.1:8090,容器不可达,不收;详见 monitoring/prometheus/prometheus.yml）。
+  # ====================================================================
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: shopsphere-prometheus
+    profiles: ["monitoring", "java"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./data/prometheus:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: shopsphere-grafana
+    profiles: ["monitoring", "java"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin123}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./data/grafana:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks: [shopsphere-net]
+    restart: unless-stopped

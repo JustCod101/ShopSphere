@@ -124,10 +124,14 @@
             <artifactId>spring-cloud-openfeign-core</artifactId>
         </dependency>
 
-        <!-- Actuator：仅 health 用于内部探活 -->
+        <!-- Actuator：health 内部探活 + prometheus 指标（T5.3 压测） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- Lombok（编译期注解处理器在父 pom 已声明） -->

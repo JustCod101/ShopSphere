@@ -257,6 +257,34 @@ ls target/e2e-logs/
 
 ---
 
+## 8.5 压测(T5.3)
+
+下单链路 1000 并发对 500 库存,验证不超卖 + TCC 三段一致 + Redis/DB 一致。
+
+```bash
+# 一键(首次会预创建 1000 用户 ~2 分钟)
+bash perf/run-all.sh
+
+# 看产出
+cat docs/perf-tcc-report.md         # 填模板
+open perf/results/html-report/      # JMeter HTML 报告
+cat perf/results/evidence.txt       # 三阶段一致性证据
+open http://localhost:3000/d/order-perf   # Grafana 看板(admin/admin123)
+```
+
+**约束**:
+- 栈必须先 healthy(`scripts/wait-stack-healthy.sh`)。
+- `prepare-users.sh` 写入 `t_user`(命名 `perf_<ts>_NNNNN`),`reset-fixtures.sh` 不动 `t_user`,users.csv 持久复用。
+- 失败:看 `perf/results/blocker-snapshot.txt`,不擅自改源码,等用户拍板。详见 `perf/README.md`。
+
+**监控**(T5.3 附带接入):
+- `monitoring/prometheus/prometheus.yml` 抓 user/product/order 三服务的 `/actuator/prometheus`。
+- gateway 因 management `address: 127.0.0.1`(防 refresh DoS)不收。
+- Grafana 看板自动 provision(`monitoring/grafana/`),含 4 panel:HTTP QPS / P99 / JVM heap / HikariCP。
+- Compose profile:`monitoring`(单独)/`java`(全栈默认带)。
+
+---
+
 ## 9. 验证清单
 
 ```bash
@@ -284,3 +312,4 @@ bash scripts/e2e-recommend.sh
 |---|---|---|
 | 2026-05-24 | T5.1 | docker-compose.yml(全栈)+ 4 个 Java Dockerfile + Python entrypoint + .env.example 扩展 + 本文档。修复 `nacos_client.py` 不展开 ${VAR} 的既有 bug(`expand_env_placeholders`)。 |
 | 2026-05-24 | T5.2 | shopsphere-e2e-test 模块(15 个 case);OrderProperties.payment.queueTtlMs 配置项 + scripts/e2e-set-timeout.sh / scripts/wait-stack-healthy.sh。 |
+| 2026-05-24 | T5.3 | `perf/`(JMeter 下单压测 + 9 个验证脚本)+ `docs/perf-tcc-report.md` + `monitoring/`(Prometheus + Grafana 容器,user/product/order 接入,看板预置);4 服务 pom 加 `micrometer-registry-prometheus`;exposure.include 追加 prometheus。 |

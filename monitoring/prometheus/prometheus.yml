@@ -1,0 +1,27 @@
+# T5.3 Prometheus 抓取配置。
+# 仅抓 user/product/order 三个业务服务的 /actuator/prometheus；
+# gateway management 端口 8090 绑 127.0.0.1（防 refresh DoS，见 shopsphere-gateway/application.yml），
+# 容器内网不可达，故不收集 gateway 指标。压测期内核心瓶颈在 order/product，已足够定位。
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'shopsphere-user'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['shopsphere-user:8081']
+        labels: { service: 'user' }
+
+  - job_name: 'shopsphere-product'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['shopsphere-product:8082']
+        labels: { service: 'product' }
+
+  - job_name: 'shopsphere-order'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['shopsphere-order:8083']
+        labels: { service: 'order' }
