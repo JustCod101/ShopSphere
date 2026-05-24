@@ -1,12 +1,16 @@
 package com.shopsphere.gateway.config;
 
+import com.alibaba.cloud.sentinel.datasource.converter.JsonConverter;
 import com.alibaba.csp.sentinel.adapter.gateway.common.SentinelGatewayConstants;
 import com.alibaba.csp.sentinel.adapter.gateway.common.api.ApiDefinition;
 import com.alibaba.csp.sentinel.adapter.gateway.common.api.ApiPathPredicateItem;
 import com.alibaba.csp.sentinel.adapter.gateway.common.api.ApiPredicateItem;
 import com.alibaba.csp.sentinel.adapter.gateway.common.api.GatewayApiDefinitionManager;
+import com.alibaba.csp.sentinel.adapter.gateway.common.rule.GatewayFlowRule;
 import com.alibaba.csp.sentinel.adapter.gateway.sc.callback.BlockRequestHandler;
 import com.alibaba.csp.sentinel.adapter.gateway.sc.callback.GatewayCallbackManager;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shopsphere.common.context.HeaderConstant;
 import com.shopsphere.common.result.ErrorCode;
 import jakarta.annotation.PostConstruct;
@@ -69,13 +73,26 @@ public class SentinelGatewayConfig {
         GatewayApiDefinitionManager.loadApiDefinitions(defs);
         log.info("Sentinel API 分组加载完成: {}", API_GROUPS.keySet());
 
-        // 自定义 BlockHandler:注入 traceId 与统一错误结构（HTTP 200 + 1003）
-        GatewayCallbackManager.setBlockHandler(traceIdAwareBlockRequestHandler());
+        // 直接 build 一个实例挂到 Sentinel 全局回调,不走 @Bean 工厂方法(避免 CGLib 自引用循环)
+        GatewayCallbackManager.setBlockHandler(buildBlockRequestHandler());
         log.info("Sentinel BlockRequestHandler 已挂载（trace-id 透传 + Result(1003)）");
     }
 
     @Bean
     public BlockRequestHandler traceIdAwareBlockRequestHandler() {
+        return buildBlockRequestHandler();
+    }
+
+    @Bean("sentinel-json-gw-flow-converter")
+    public JsonConverter<GatewayFlowRule> jsonGatewayFlowConverter() {
+        ObjectMapper mapper = new ObjectMapper()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return new JsonConverter<>(mapper, GatewayFlowRule.class);
+    }
+
+    /** Build 一个 BlockRequestHandler 实例。@PostConstruct 与 @Bean 均通过此 helper 拿到等价实例,
+     *  避免 @PostConstruct 内调用同 class 的 @Bean 方法(CGLib 自引用 → Spring Boot 3 默认拒绝). */
+    private static BlockRequestHandler buildBlockRequestHandler() {
         return (exchange, t) -> {
             Object attr = exchange.getAttribute(HeaderConstant.X_TRACE_ID);
             String tid = (attr instanceof String s && !s.isBlank()) ? s : null;

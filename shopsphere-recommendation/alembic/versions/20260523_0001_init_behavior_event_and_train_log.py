@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import mysql
 
 revision: str = "0001"
 down_revision: Union[str, None] = None
@@ -25,10 +26,11 @@ def upgrade() -> None:
         sa.Column("item_id", sa.BigInteger, nullable=False),
         sa.Column("action_type", sa.String(16), nullable=False, comment="view/cart/order"),
         sa.Column("source", sa.String(16), nullable=False, comment="behavior/order"),
-        sa.Column("ts", sa.DateTime(timezone=True), nullable=False, comment="UTC,DATETIME(3)"),
+        # MySQL 8.0 严格模式下,DATETIME 列 fsp 必须与 default CURRENT_TIMESTAMP(3) 一致,否则 1067
+        sa.Column("ts", mysql.DATETIME(fsp=3, timezone=True), nullable=False, comment="UTC,DATETIME(3)"),
         sa.Column(
             "created_at",
-            sa.DateTime(timezone=True),
+            mysql.DATETIME(fsp=3, timezone=True),
             server_default=sa.text("CURRENT_TIMESTAMP(3)"),
             nullable=False,
         ),
@@ -43,8 +45,8 @@ def upgrade() -> None:
     op.create_table(
         "t_train_log",
         sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("started_at", mysql.DATETIME(fsp=3, timezone=True), nullable=False),
+        sa.Column("finished_at", mysql.DATETIME(fsp=3, timezone=True), nullable=True),
         sa.Column("item_count", sa.Integer, nullable=True),
         sa.Column("user_count", sa.Integer, nullable=True),
         sa.Column("behavior_count", sa.BigInteger, nullable=True),

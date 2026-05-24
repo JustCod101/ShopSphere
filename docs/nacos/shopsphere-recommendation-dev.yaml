@@ -1,0 +1,29 @@
+# Nacos dataId: shopsphere-recommendation-dev.yaml
+# namespace: DEFAULT   group: DEFAULT_GROUP
+#
+# Python 推荐服务 dev 环境配置。
+# Python 端 nacos_client.py 已支持 ${VAR:default} 占位符展开(T5.1),与 Java Spring 行为对齐。
+# 容器环境注入 MYSQL_HOST/PASSWORD/REDIS_HOST/RABBITMQ_HOST/USER/PASSWORD,本地 IDE 跑用 default。
+#
+# Python 不接 Jasypt,机密项以明文/env 形式存于 Nacos(Nacos 鉴权 + 内网隔离保证)。
+# 生产环境改为环境变量注入 + Vault/Secrets Manager。
+
+mysql:
+  host: ${MYSQL_HOST:localhost}
+  port: 3306
+  user: ${MYSQL_USER:root}
+  password: ${MYSQL_PASSWORD:root123}
+  db: ${MYSQL_DB:shopsphere_reco}
+
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: 6379
+  password: null
+  db: 0
+
+rabbitmq:
+  host: ${RABBITMQ_HOST:localhost}
+  port: 5672
+  user: ${RABBITMQ_USER:guest}
+  password: ${RABBITMQ_PASSWORD:guest}
+  vhost: shopsphere

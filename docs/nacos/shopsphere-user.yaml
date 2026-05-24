@@ -19,7 +19,7 @@ login:
     key-prefix: "user:login:fail:"
     lock-prefix: "user:login:lock:"
 
-# 行为埋点（契约 §8 user.behavior，🟡 轻量等级）
+# 行为埋点（契约 §8 user.behavior，轻量等级）
 behavior:
   exchange: shopsphere.behavior
   routing-key: user.behavior

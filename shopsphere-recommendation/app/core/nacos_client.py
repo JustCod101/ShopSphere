@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import socket
 from typing import Callable, Optional
 
@@ -20,6 +21,23 @@ logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "shopsphere-recommendation"
 DEFAULT_GROUP = "DEFAULT_GROUP"
+
+# Spring 风格 placeholder: ${VAR} 或 ${VAR:default}
+# 与 Java 服务行为对齐;Nacos 同一份 yaml 在 Java / Python 容器内得到一致解析。
+_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
+
+
+def expand_env_placeholders(text: str) -> str:
+    """展开 ${VAR} / ${VAR:default}。env 缺且无 default 时保留原文(让下游解析时显式炸)。"""
+    def _sub(m: re.Match[str]) -> str:
+        key, default = m.group(1), m.group(2)
+        val = os.environ.get(key)
+        if val is not None:
+            return val
+        if default is not None:
+            return default
+        return m.group(0)
+    return _PLACEHOLDER_RE.sub(_sub, text)
 
 
 def resolve_register_ip() -> str:
@@ -55,6 +73,8 @@ class NacosBootstrap:
         if not content:
             logger.warning("Nacos config empty: dataId=%s group=%s", data_id, group)
             return {}
+        # 与 Java Spring 行为对齐:先展开 ${VAR:default},再 parse YAML
+        content = expand_env_placeholders(content)
         try:
             parsed = yaml.safe_load(content) or {}
             if not isinstance(parsed, dict):
@@ -77,7 +97,7 @@ class NacosBootstrap:
 
     # ------------- 服务注册 -------------
     def register(self, ip: str, port: int, group: str = DEFAULT_GROUP) -> None:
-        """注册到 Nacos —— ephemeral=True，SDK 启 daemon 线程发心跳（默认 5s）。"""
+        """注册到 Nacos —— ephemeral=True，SDK 启 daemon 线程发心跳。"""
         self._client.add_naming_instance(
             service_name=self.service_name,
             ip=ip,
@@ -89,7 +109,6 @@ class NacosBootstrap:
             healthy=True,
             ephemeral=True,
             group_name=group,
-            heartbeat_interval=5,
         )
         logger.info("Nacos registered: service=%s ip=%s port=%s", self.service_name, ip, port)
 

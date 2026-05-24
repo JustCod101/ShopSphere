@@ -1,0 +1,439 @@
+# T5.1 — ShopSphere 全栈编排(基础设施 + 5 业务服务)
+# 端口/库名/服务名严格对齐 docs/api-contracts.md §5;所有口令经 .env 注入;零硬编码。
+#
+# 用法:
+#   cp .env.example .env
+#   docker compose up --build -d           # 全栈(.env 默认 COMPOSE_PROFILES=java,python)
+#   COMPOSE_PROFILES= docker compose up    # 仅 infra
+#   COMPOSE_PROFILES=java docker compose up # infra + Java
+#
+# 与 docker-compose.infra.yml 二选一:本文件含 infra 全部内容;后者保留供"仅起 infra"场景。
+# 不要同时启动(container_name 冲突)。
+name: shopsphere
+
+networks:
+  shopsphere-net:
+    driver: bridge
+
+services:
+
+  # ====================================================================
+  # 基础设施(无 profile → 总是启动)
+  # ====================================================================
+
+  mysql:
+    image: mysql:8.0.36
+    container_name: shopsphere-mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    environment:
+      TZ: UTC
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./scripts/01-init-mysql.sql:/docker-entrypoint-initdb.d/01-init-mysql.sql:ro
+      - ./scripts/02-nacos-mysql-schema.sql:/docker-entrypoint-initdb.d/02-nacos-mysql-schema.sql:ro
+      - ./scripts/03-seata-server.sql:/docker-entrypoint-initdb.d/03-seata-server.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  nacos:
+    image: nacos/nacos-server:v2.3.2
+    container_name: shopsphere-nacos
+    platform: linux/amd64
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: "3306"
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: root
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=5000&socketTimeout=30000&autoReconnect=true&useSSL=false&serverTimezone=UTC
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
+    ports:
+      - "${NACOS_PORT:-8848}:8848"
+      - "9848:9848"
+      - "9849:9849"
+    volumes:
+      - ./data/nacos/logs:/home/nacos/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: shopsphere-redis
+    environment:
+      TZ: UTC
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  rabbitmq:
+    build: ./rabbitmq
+    image: shopsphere/rabbitmq:3.13-delayed
+    container_name: shopsphere-rabbitmq
+    environment:
+      TZ: UTC
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: shopsphere
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_connectivity"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  seata-config-init:
+    image: nacos/nacos-server:v2.3.2
+    container_name: shopsphere-seata-config-init
+    platform: linux/amd64
+    depends_on:
+      nacos:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /tmp/sr
+        sed "s|[$]{MYSQL_ROOT_PASSWORD}|$$MYSQL_ROOT_PASSWORD|g" /scripts/seata-config.txt > /tmp/config.txt
+        cd /tmp/sr
+        bash /scripts/seata-nacos-config.sh -h nacos -p 8848 -g SEATA_GROUP
+    restart: on-failure
+    networks: [shopsphere-net]
+
+  seata-server:
+    image: seataio/seata-server:1.8.0
+    container_name: shopsphere-seata
+    platform: linux/amd64
+    environment:
+      TZ: UTC
+    depends_on:
+      seata-config-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./seata/application.yml:/seata-server/resources/application.yml:ro
+    ports:
+      - "${SEATA_PORT:-8091}:8091"
+      - "${SEATA_CONSOLE_PORT:-7091}:7091"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8091'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  # Nacos 健康后把 docs/nacos/ 下的公共配置推送过去,实现"启栈即就绪"。
+  # 推送内容见 scripts/nacos-config-push.sh;不含 jasypt 加密的 user/product/order-dev,
+  # 这些仍需用户手工 paste(详见 docs/deployment.md §7)。
+  nacos-config-init:
+    image: curlimages/curl:8.7.1
+    container_name: shopsphere-nacos-config-init
+    depends_on:
+      nacos:
+        condition: service_healthy
+    environment:
+      NACOS_URL: http://nacos:8848
+      NACOS_GROUP: DEFAULT_GROUP
+    volumes:
+      - ./docs/nacos:/configs:ro
+      - ./scripts/nacos-config-push.sh:/push.sh:ro
+    entrypoint: ["/bin/sh", "/push.sh"]
+    restart: on-failure
+    networks: [shopsphere-net]
+
+  sentinel-dashboard:
+    image: bladex/sentinel-dashboard:1.8.8
+    container_name: shopsphere-sentinel
+    platform: linux/amd64
+    environment:
+      TZ: UTC
+    ports:
+      - "${SENTINEL_PORT:-8858}:8858"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8858/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  # ====================================================================
+  # Java 业务服务(profile=java)
+  # 注入 NACOS_HOST / MYSQL_HOST / REDIS_HOST / RABBITMQ_HOST / SEATA_HOST
+  # 给 Nacos 配置中心拉下来的 ${VAR:default} 提供值
+  # ====================================================================
+
+  shopsphere-gateway:
+    build:
+      context: .
+      dockerfile: shopsphere-gateway/Dockerfile
+    container_name: shopsphere-gateway
+    profiles: ["java"]
+    environment:
+      TZ: UTC
+      NACOS_HOST: nacos
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC -Duser.timezone=UTC"
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    volumes:
+      - ./logs/gateway:/app/logs
+    depends_on:
+      nacos:
+        condition: service_healthy
+      nacos-config-init:
+        condition: service_completed_successfully
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  shopsphere-user:
+    build:
+      context: .
+      dockerfile: shopsphere-user/Dockerfile
+    container_name: shopsphere-user
+    profiles: ["java"]
+    environment:
+      TZ: UTC
+      SPRING_PROFILES_ACTIVE: dev
+      NACOS_HOST: nacos
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shopsphere_user?useSSL=false&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      SPRING_RABBITMQ_VIRTUAL_HOST: shopsphere
+      SPRING_RABBITMQ_PUBLISHER_CONFIRM_TYPE: correlated
+      SPRING_RABBITMQ_PUBLISHER_RETURNS: "true"
+      SPRING_RABBITMQ_TEMPLATE_MANDATORY: "true"
+      SPRING_RABBITMQ_LISTENER_SIMPLE_ACKNOWLEDGE_MODE: manual
+      SPRING_RABBITMQ_LISTENER_SIMPLE_PREFETCH: "20"
+      SPRING_RABBITMQ_LISTENER_SIMPLE_DEFAULT_REQUEUE_REJECTED: "false"
+      JWT_PRIVATE_KEY_PATH: /run/secrets/shopsphere-jwt-private-key.pem
+      SEATA_HOST: seata-server
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+      JASYPT_ENCRYPTOR_PASSWORD: ${JASYPT_ENCRYPTOR_PASSWORD}
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC -Duser.timezone=UTC"
+    ports:
+      - "${USER_PORT:-8081}:8081"
+    volumes:
+      - ./logs/user:/app/logs
+      - ./data/jwt/jwt-private-key.pem:/run/secrets/shopsphere-jwt-private-key.pem:ro
+    depends_on:
+      nacos:
+        condition: service_healthy
+      nacos-config-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seata-server:
+        condition: service_healthy
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  shopsphere-product:
+    build:
+      context: .
+      dockerfile: shopsphere-product/Dockerfile
+    container_name: shopsphere-product
+    profiles: ["java"]
+    environment:
+      TZ: UTC
+      SPRING_PROFILES_ACTIVE: dev
+      NACOS_HOST: nacos
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shopsphere_product?useSSL=false&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SEATA_HOST: seata-server
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+      JASYPT_ENCRYPTOR_PASSWORD: ${JASYPT_ENCRYPTOR_PASSWORD}
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC -Duser.timezone=UTC"
+    ports:
+      - "${PRODUCT_PORT:-8082}:8082"
+    volumes:
+      - ./logs/product:/app/logs
+    depends_on:
+      nacos:
+        condition: service_healthy
+      nacos-config-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seata-server:
+        condition: service_healthy
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  shopsphere-order:
+    build:
+      context: .
+      dockerfile: shopsphere-order/Dockerfile
+    container_name: shopsphere-order
+    profiles: ["java"]
+    environment:
+      TZ: UTC
+      SPRING_PROFILES_ACTIVE: dev
+      NACOS_HOST: nacos
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shopsphere_order?useSSL=false&serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      SPRING_RABBITMQ_VIRTUAL_HOST: shopsphere
+      SPRING_RABBITMQ_PUBLISHER_CONFIRM_TYPE: correlated
+      SPRING_RABBITMQ_PUBLISHER_RETURNS: "true"
+      SPRING_RABBITMQ_TEMPLATE_MANDATORY: "true"
+      SPRING_RABBITMQ_LISTENER_SIMPLE_ACKNOWLEDGE_MODE: manual
+      SPRING_RABBITMQ_LISTENER_SIMPLE_PREFETCH: "20"
+      SPRING_RABBITMQ_LISTENER_SIMPLE_DEFAULT_REQUEUE_REJECTED: "false"
+      SEATA_HOST: seata-server
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+      JASYPT_ENCRYPTOR_PASSWORD: ${JASYPT_ENCRYPTOR_PASSWORD}
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC -Duser.timezone=UTC"
+    ports:
+      - "${ORDER_PORT:-8083}:8083"
+    volumes:
+      - ./logs/order:/app/logs
+    depends_on:
+      nacos:
+        condition: service_healthy
+      nacos-config-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seata-server:
+        condition: service_healthy
+    networks: [shopsphere-net]
+    restart: unless-stopped
+
+  # ====================================================================
+  # Python 推荐服务(profile=python)
+  # nacos_client.py 已支持 ${VAR:default} 展开;Nacos 配置里的 host 占位符
+  # 会被这些 env 替换为容器名
+  # ====================================================================
+
+  shopsphere-recommendation:
+    build:
+      context: ./shopsphere-recommendation
+      dockerfile: Dockerfile
+    container_name: shopsphere-recommendation
+    profiles: ["python"]
+    environment:
+      TZ: UTC
+      APP_PROFILE: dev
+      NACOS_SERVER: nacos:8848
+      # NACOS_REGISTER_IP 留空:socket 解析容器主机名(compose 网络可达)
+      # 占位符展开 + alembic 直连
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DB: shopsphere_reco
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      LOG_LEVEL: INFO
+    ports:
+      - "${RECO_PORT:-8000}:8000"
+    volumes:
+      - ./logs/recommendation:/app/logs
+    depends_on:
+      nacos:
+        condition: service_healthy
+      nacos-config-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [shopsphere-net]
+    restart: on-failure
